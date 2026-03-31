@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+QUERY="$1"
+
+if [[ -z "$QUERY" ]]; then
+    echo "Usage: agent search <filename-part>"
+    exit 1
+fi
+
+echo "Searching for '*$QUERY*'..."
+command find . -name "*$QUERY*" -not -path '*/\.git/*'
+```
+
+**File:** `agent-cli/tools/index`
+```bash
+#!/usr/bin/env bash
+
+OUT_FILE="index.txt"
+
+echo "Creating index of all tracked files..."
+# If using git, `git ls-files` is much cleaner than find. 
+# Falling back to find if git isn't available.
+if git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+    git ls-files > "$OUT_FILE"
+else
+    command find . -type f -not -path '*/\.git/*' > "$OUT_FILE"
+fi
+
+echo "Saved to $OUT_FILE"

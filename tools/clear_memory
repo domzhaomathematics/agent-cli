@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+OUT_FILE="$AGENT_DIR/context.txt"
+
+# The single '>' instantly empties the file if it exists, or creates it if it doesn't.
+> "$OUT_FILE"
+
+echo "✨ Memory cleared! (context.txt is now empty)"

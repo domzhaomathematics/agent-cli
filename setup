@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+
+# Get the exact path to this repository
+# (Using BASH_SOURCE helps find the right path even if the script is "sourced")
+AGENT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]:-$0}")")"
+BIN_DIR="$HOME/.local/bin"
+
+echo "⚙️  Setting up agent-cli..."
+
+# 1. Make the dispatcher and all tool/create scripts executable
+chmod +x "$AGENT_DIR/agent"
+chmod +x "$AGENT_DIR"/tools/* 2>/dev/null
+chmod +x "$AGENT_DIR"/create/* 2>/dev/null
+echo "✔ Made scripts executable."
+
+# 2. Ensure ~/.local/bin exists
+mkdir -p "$BIN_DIR"
+
+# 3. Create a symbolic link (forcing overwrite if it already exists)
+ln -sf "$AGENT_DIR/agent" "$BIN_DIR/agent"
+echo "✔ Created symlink: $BIN_DIR/agent -> $AGENT_DIR/agent"
+
+# 4. Automatically add to PATH if missing
+if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
+    # Detect if user is on Bash or Zsh
+    USER_SHELL=$(basename "$SHELL")
+    if [[ "$USER_SHELL" == "zsh" ]]; then
+        RC_FILE="$HOME/.zshrc"
+    else
+        RC_FILE="$HOME/.bashrc"
+    fi
+
+    # Append to the file ONLY if it's not already in there
+    if ! grep -q "$BIN_DIR" "$RC_FILE" 2>/dev/null; then
+        echo -e "\n# Added by agent-cli setup" >> "$RC_FILE"
+        echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$RC_FILE"
+        echo "✔ Automatically added $BIN_DIR to $RC_FILE"
+    else
+        echo "✔ PATH entry already exists in $RC_FILE"
+    fi
+
+    echo -e "\n✅ Setup complete! It will load automatically in all future terminal windows. Open new terminal window to start using the 'agent' command."
+else
+    echo -e "\n✅ Setup complete! You can now use the 'agent' command from anywhere."
+fi

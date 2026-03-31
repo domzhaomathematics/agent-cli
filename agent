@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+# EXPORT the directory so all child scripts know where the agent-cli folder is
+export AGENT_DIR="$(dirname "$(realpath "$0")")"
+COMMAND="$1"
+shift
+
+if [[ -z "$COMMAND" ]]; then
+    echo "Usage: agent <command>[args...]"
+    echo -e "\nTools:"
+    ls -1 "$AGENT_DIR/tools" 2>/dev/null | sed 's/^/  - /'
+    echo -e "\nCreate/Involved Processes:"
+    ls -1 "$AGENT_DIR/create" 2>/dev/null | sed 's/^/  - /'
+    exit 1
+fi
+
+if [[ -x "$AGENT_DIR/tools/$COMMAND" ]]; then
+    "$AGENT_DIR/tools/$COMMAND" "$@"
+elif [[ -x "$AGENT_DIR/create/$COMMAND" ]]; then
+    "$AGENT_DIR/create/$COMMAND" "$@"
+else
+    echo "Error: '$COMMAND' not found in tools/ or create/."
+    exit 1
+fi
