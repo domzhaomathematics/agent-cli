@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+
+PROMPT="$1"
+OUT_FILE="$AGENT_DIR/context.txt"
+PAYLOAD_FILE="$AGENT_DIR/payload.json"
+
+# 1. Validation Checks
+if [[ -z "$GEMINI_API_KEY" ]]; then
+    echo "❌ Error: GEMINI_API_KEY is not set. Run 'bash setup' inside agent-cli to configure it."
+    exit 1
+fi
+
+if [[ -z "$PROMPT" ]]; then
+    echo "Usage: agent ask \"Your question here\""
+    exit 1
+fi
+
+if ! command -v jq &> /dev/null; then
+    echo "❌ Error: 'jq' is missing. Run 'bash setup' to install dependencies."
+    exit 1
+fi
+
+# 2. Smart Context Loading & Payload Generation (Direct to file)
+if [[ -s "$OUT_FILE" ]]; then
+    LINES=$(wc -l < "$OUT_FILE" | xargs)
+    echo -e "📚 Context loaded ($LINES lines). Thinking...\n"
+    
+    jq -Rs --arg pmt "$PROMPT" '{
+      "contents": [{
+        "parts":[{"text": ("Here is the codebase context:\n\n" + . + "\n\nUser Question:\n" + $pmt)}]
+      }]
+    }' < "$OUT_FILE" > "$PAYLOAD_FILE"
+
+else
+    echo -e "💬 No context loaded. Thinking purely based on prompt...\n"
+    
+    jq -n --arg pmt "$PROMPT" '{
+      "contents": [{
+        "parts":[{"text": $pmt}]
+      }]
+    }' > "$PAYLOAD_FILE"
+fi
+
+# 3. Call Gemini 3 Flash API (Corrected Model String!)
+RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=$GEMINI_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d @"$PAYLOAD_FILE")
+
+# Clean up
+rm -f "$PAYLOAD_FILE"
+
+# 4. Check for API Errors
+ERROR_MSG=$(echo "$RESPONSE" | jq -r '.error.message // empty')
+if [[ -n "$ERROR_MSG" ]]; then
+    echo "❌ API Error: $ERROR_MSG"
+    exit 1
+fi
+
+# 5. Extract and Print EXACTLY the answer
+echo "==================== ANSWER ===================="
+echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // "❌ Could not parse response."'
+echo -e "================================================\n"
