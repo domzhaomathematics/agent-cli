@@ -41,6 +41,7 @@ fi
 chmod +x "$AGENT_DIR/agent"
 chmod +x "$AGENT_DIR"/tools/* 2>/dev/null
 chmod +x "$AGENT_DIR"/create/* 2>/dev/null
+chmod +x "$AGENT_DIR"/sequence/* 2>/dev/null
 echo "✔ Made scripts executable."
 
 # --- 3. CREATE SYMLINK ---
@@ -57,7 +58,7 @@ fi
 
 # --- 5. SETUP API KEY ---
 if ! grep -q "GEMINI_API_KEY" "$RC_FILE" 2>/dev/null; then
-    echo -e "\n🤖 Do you want to configure Gemini 3.1 Pro Preview for the 'ask' tool? (y/n)"
+    echo -e "\n🤖 Do you want to configure Gemini 3 Flash Preview for the 'ask' tool? (y/n)"
     read -r config_ai
     if [[ "$config_ai" =~ ^[Yy]$ ]]; then
         echo -n "Paste your Google AI Studio API Key (input will be hidden): "
