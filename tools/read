@@ -1,29 +1,14 @@
 #!/usr/bin/env bash
-
 FILE="$1"
-OUT_FILE="$AGENT_DIR/context.txt"
-MAX_SIZE="1024k"
-
-if [[ -z "$FILE" || ! -f "$FILE" ]]; then
-    echo "Usage: agent read <filename>"
-    exit 1
-fi
-
-# Layer 1: Size check. If find doesn't output the filename, it's too big!
-if [[ -z $(command find "$FILE" -type f -size -"$MAX_SIZE") ]]; then
-    echo "❌ Error: '$FILE' is larger than 1MB. Skipping to protect memory."
-    exit 1
-fi
-
-# Layer 2: Content type check. Ensure it's text-based data.
-if ! file "$FILE" | grep -qiE 'text|json|csv|xml|empty'; then
-    echo "❌ Error: '$FILE' appears to be a binary/non-text file. Skipping."
-    exit 1
-fi
-
-echo -e "\n========================================" >> "$OUT_FILE"
-echo "File: $FILE" >> "$OUT_FILE"
-echo "========================================" >> "$OUT_FILE"
-cat "$FILE" >> "$OUT_FILE"
-
-echo "✔ Appended '$FILE' safely to context.txt"
+OUT_FILE="$SESSION_DIR/context.txt"
+if [[ -z "$FILE" ]]; then echo "Usage: agent read <filename>"; exit 1; fi
+if [[ -f "$FILE" ]]; then TARGET="$FILE"
+elif [[ -f "$AGENT_DIR/$FILE" ]]; then TARGET="$AGENT_DIR/$FILE"
+else MSG="[Session: $SESSION_NAME] ❌ Error: '$FILE' not found."; echo "$MSG"; [[ "$SESSION_NAME" != "Global" ]] && echo "$MSG" >> "$SESSION_DIR/history.txt"; exit 1; fi
+if [[ -z $(command find "$TARGET" -type f -size -1024k) ]]; then MSG="[Session: $SESSION_NAME] ❌ Error: File > 1MB."; echo "$MSG"; [[ "$SESSION_NAME" != "Global" ]] && echo "$MSG" >> "$SESSION_DIR/history.txt"; exit 1; fi
+if ! file "$TARGET" | grep -qiE 'text|json|csv|xml|empty'; then MSG="[Session: $SESSION_NAME] ❌ Error: Binary file."; echo "$MSG"; [[ "$SESSION_NAME" != "Global" ]] && echo "$MSG" >> "$SESSION_DIR/history.txt"; exit 1; fi
+echo -e "\n========================================\nFile: $TARGET\n========================================" >> "$OUT_FILE"
+cat "$TARGET" >> "$OUT_FILE"
+MSG="[Session: $SESSION_NAME] ✔ Appended '$TARGET' to context."
+echo "$MSG"
+if [[ "$SESSION_NAME" != "Global" ]]; then echo "$MSG" >> "$SESSION_DIR/history.txt"; fi

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+NAME="$1"
+if [[ ! -d "$AGENT_DIR/sessions/$NAME" ]]; then echo "❌ Error: Session '$NAME' does not exist."; exit 1; fi
+
+CURRENT_TTY=$(tty | sed 's|/|_|g')
+echo "$NAME" > "$AGENT_DIR/sessions/.bindings/$CURRENT_TTY"
+echo "[Session: $NAME] 🔄 Terminal bound to existing workspace."

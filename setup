@@ -1,76 +1,54 @@
 #!/usr/bin/env bash
-
 AGENT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]:-$0}")")"
 BIN_DIR="$HOME/.local/bin"
+RC_FILE="$HOME/.bashrc"
+if [[ "$(basename "$SHELL")" == "zsh" ]]; then RC_FILE="$HOME/.zshrc"; fi
 
-# Detect Shell Config File
-USER_SHELL=$(basename "$SHELL")
-if [[ "$USER_SHELL" == "zsh" ]]; then
-    RC_FILE="$HOME/.zshrc"
-else
-    RC_FILE="$HOME/.bashrc"
-fi
+echo -e "\n⚙️  Setting up agent-cli...\n"
 
-echo "⚙️  Setting up agent-cli..."
+# Create core folder architecture if it doesn't exist
+mkdir -p "$AGENT_DIR/tools" "$AGENT_DIR/sequence" "$AGENT_DIR/sessions/.bindings"
 
-# --- 1. DEPENDENCY MANAGER ---
 if ! command -v jq &> /dev/null; then
-    echo "📦 'jq' is missing. Attempting to install..."
-    if command -v apt-get &> /dev/null; then
-        echo "👉 Detected Debian/Ubuntu. (May ask for sudo password)"
-        sudo apt-get update && sudo apt-get install -y jq
-    elif command -v brew &> /dev/null; then
-        echo "👉 Detected macOS (Homebrew)."
-        brew install jq
-    elif command -v dnf &> /dev/null; then
-        echo "👉 Detected Fedora/RHEL."
-        sudo dnf install -y jq
-    elif command -v yum &> /dev/null; then
-        echo "👉 Detected CentOS/Amazon Linux."
-        sudo yum install -y jq
-    else
-        echo "❌ Could not detect package manager. Please install 'jq' manually."
-        exit 1
-    fi
-    echo "✔ 'jq' installed successfully."
-else
-    echo "✔ 'jq' is already installed."
+    echo "   📦 'jq' is missing. Attempting to install (may ask for sudo)..."
+    if command -v apt-get &> /dev/null; then sudo apt-get update -qq && sudo apt-get install -y jq; fi
+    echo "   ✔ 'jq' installed."
 fi
 
-# --- 2. MAKE EXECUTABLE ---
-chmod +x "$AGENT_DIR/agent"
+chmod +x "$AGENT_DIR/agent" "$AGENT_DIR/setup" 2>/dev/null
 chmod +x "$AGENT_DIR"/tools/* 2>/dev/null
-chmod +x "$AGENT_DIR"/create/* 2>/dev/null
 chmod +x "$AGENT_DIR"/sequence/* 2>/dev/null
-echo "✔ Made scripts executable."
+echo "   ✔ Scripts made executable."
 
-# --- 3. CREATE SYMLINK ---
 mkdir -p "$BIN_DIR"
 ln -sf "$AGENT_DIR/agent" "$BIN_DIR/agent"
-echo "✔ Created symlink: $BIN_DIR/agent -> $AGENT_DIR/agent"
+echo "   ✔ Symlink created ($BIN_DIR/agent)."
 
-# --- 4. SETUP PATH ---
 if ! grep -q "$BIN_DIR" "$RC_FILE" 2>/dev/null; then
-    echo -e "\n# Added by agent-cli setup" >> "$RC_FILE"
-    echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$RC_FILE"
-    echo "✔ Automatically added $BIN_DIR to PATH in $RC_FILE"
+    echo -e "\nexport PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$RC_FILE"
+    echo "   ✔ PATH updated in $(basename "$RC_FILE")."
 fi
 
-# --- 5. SETUP API KEY ---
 if ! grep -q "GEMINI_API_KEY" "$RC_FILE" 2>/dev/null; then
-    echo -e "\n🤖 Do you want to configure Gemini 3 Flash Preview for the 'ask' tool? (y/n)"
+    echo -ne "\n🤖 Configure Gemini 3 Flash API Key? (y/n): "
     read -r config_ai
     if [[ "$config_ai" =~ ^[Yy]$ ]]; then
-        echo -n "Paste your Google AI Studio API Key (input will be hidden): "
-        read -s api_key
-        echo "" 
-        if [[ -n "$api_key" ]]; then
+        echo -ne "   Paste your API Key (input hidden): "
+        read -s api_key; echo ""
+        if [[ -n "$api_key" ]]; then 
             echo "export GEMINI_API_KEY=\"$api_key\"" >> "$RC_FILE"
-            echo "✔ API Key securely saved to $RC_FILE"
+            echo "   ✔ API Key securely saved."
         fi
     fi
 fi
 
 echo -e "\n✅ Setup complete!"
-echo -e "👉 To use 'agent' and the API key RIGHT NOW in this window, run:\n"
-echo -e "    source $RC_FILE\n"
+echo -e "\n-------------------------------------------------------"
+echo -e " 🚀 HOW TO START"
+echo -e "-------------------------------------------------------"
+echo -e " To use 'agent' right now in this window, run:"
+echo -e " 👉  source $RC_FILE\n"
+echo -e " (Or simply close this and open a new terminal window)\n"
+echo -e " Then try your first command:"
+echo -e "     agent help"
+echo -e "-------------------------------------------------------\n"

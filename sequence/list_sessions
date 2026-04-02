@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+echo "--- Active Workspaces ---"
+for dir in "$AGENT_DIR/sessions"/*; do
+    if [[ -d "$dir" && "$(basename "$dir")" != ".bindings" ]]; then
+        S_NAME=$(basename "$dir")
+        if [[ "$S_NAME" == "$SESSION_NAME" ]]; then echo "  * $S_NAME (Active in this terminal)"
+        else echo "    $S_NAME"; fi
+    fi
+done

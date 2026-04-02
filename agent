@@ -1,27 +1,58 @@
 #!/usr/bin/env bash
-
 export AGENT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]:-$0}")")"
-COMMAND="$1"
-shift
+mkdir -p "$AGENT_DIR/sessions/.bindings"
 
-if [[ -z "$COMMAND" ]]; then
-    echo "Usage: agent <command> [args...]"
-    echo -e "\nTools:"
-    ls -1 "$AGENT_DIR/tools" 2>/dev/null | sed 's/^/  - /'
-    echo -e "\nCreate/Involved Processes:"
-    ls -1 "$AGENT_DIR/create" 2>/dev/null | sed 's/^/  - /'
-    echo -e "\nSequences:"
-    ls -1 "$AGENT_DIR/sequence" 2>/dev/null | sed 's/^/  - /'
-    exit 1
+CURRENT_TTY=$(tty | sed 's|/|_|g')
+BINDING_FILE="$AGENT_DIR/sessions/.bindings/$CURRENT_TTY"
+
+if [[ -f "$BINDING_FILE" ]]; then
+    export SESSION_NAME=$(cat "$BINDING_FILE")
+    export SESSION_DIR="$AGENT_DIR/sessions/$SESSION_NAME"
+else
+    export SESSION_NAME=""
+    export SESSION_DIR=""
 fi
 
-if [[ -x "$AGENT_DIR/tools/$COMMAND" ]]; then
-    "$AGENT_DIR/tools/$COMMAND" "$@"
-elif [[ -x "$AGENT_DIR/create/$COMMAND" ]]; then
-    "$AGENT_DIR/create/$COMMAND" "$@"
-elif [[ -x "$AGENT_DIR/sequence/$COMMAND" ]]; then
-    "$AGENT_DIR/sequence/$COMMAND" "$@"
+COMMAND="$1"
+shift
+if [[ -z "$COMMAND" ]]; then COMMAND="help"; fi
+
+# 1. THE BOUNCER (Whitelist commands allowed without a session)
+ALLOWED_WITHOUT_SESSION="help start_session resume_session stop_session list_sessions delete_session"
+
+if [[ -z "$SESSION_NAME" ]]; then
+    if [[ ! " $ALLOWED_WITHOUT_SESSION " =~ " $COMMAND " ]]; then
+        echo "❌ Error: No active session found for this terminal."
+        echo "👉 Run 'agent start_session <name>' or 'agent resume_session <name>' to begin."
+        exit 1
+    fi
+fi
+
+# 2. THE TRANSCRIPT LOGGER (Only log actual workflow commands to the AI's history)
+if [[ -n "$SESSION_NAME" ]]; then
+    if [[ ! " $ALLOWED_WITHOUT_SESSION " =~ " $COMMAND " ]]; then
+        P_USER=$(whoami 2>/dev/null || echo "user")
+        P_HOST=$(hostname 2>/dev/null || echo "host")
+        P_DIR=$(pwd | sed "s|^$HOME|~|")
+        
+        CMD_STR="agent $COMMAND"
+        for arg in "$@"; do CMD_STR="$CMD_STR $(printf "%q" "$arg")"; done
+        
+        echo -e "\n${P_USER}@${P_HOST}:${P_DIR}\$ $CMD_STR" >> "$SESSION_DIR/history.txt"
+    fi
+fi
+
+# 3. ROUTE THE COMMAND
+if [[ -x "$AGENT_DIR/tools/$COMMAND" ]]; then "$AGENT_DIR/tools/$COMMAND" "$@"
+elif [[ -x "$AGENT_DIR/sequence/$COMMAND" ]]; then "$AGENT_DIR/sequence/$COMMAND" "$@"
+elif [[ -x "$AGENT_DIR/create/$COMMAND" ]]; then "$AGENT_DIR/create/$COMMAND" "$@"
 else
-    echo "Error: '$COMMAND' not found in tools/, create/, or sequence/."
+    if [[ -n "$SESSION_NAME" ]]; then
+        MSG="[Session: $SESSION_NAME] ❌ Error: '$COMMAND' not found. Run 'agent help'."
+        echo "$MSG"
+        echo "$MSG" >> "$SESSION_DIR/history.txt"
+    else
+        echo "❌ Error: '$COMMAND' not found. Run 'agent help'."
+    fi
     exit 1
 fi

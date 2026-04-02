@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+CURRENT_TTY=$(tty | sed 's|/|_|g')
+rm -f "$AGENT_DIR/sessions/.bindings/$CURRENT_TTY"
+echo "[Global] 🛑 Terminal unbound. Returned to global mode."

@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+
+if [[ -z "$GEMINI_API_KEY" ]]; then echo "❌ GEMINI_API_KEY not set."; exit 1; fi
+if ! command -v jq &> /dev/null; then echo "❌ Error: 'jq' is missing."; exit 1; fi
+
+PROMPT="$*"
+if [[ -z "$PROMPT" ]]; then echo "Usage: agent script <prompt>"; exit 1; fi
+
+# We silently append the strict pathing instruction to your prompt
+FULL_PROMPT="$PROMPT\n\n[SYSTEM INSTRUCTION]: Write the explanation normally, but put the executable bash script inside a \`\`\`bash code block. Note: This bash script will be executed in the user's current directory but saved in a completely different folder, so please use absolute paths."
+
+TMP_CONTEXT="$AGENT_DIR/tmp_context.txt"
+> "$TMP_CONTEXT"
+
+if [[ -s "$AGENT_DIR/memory.txt" ]]; then echo -e "--- GLOBAL PROJECT MAP ---\n$(cat "$AGENT_DIR/memory.txt")\n\n" >> "$TMP_CONTEXT"; fi
+if [[ -s "$SESSION_DIR/context.txt" ]]; then echo -e "--- SESSION CONTEXT ---\n$(cat "$SESSION_DIR/context.txt")\n\n" >> "$TMP_CONTEXT"; fi
+if [[ -s "$SESSION_DIR/history.txt" && "$SESSION_NAME" != "Global" ]]; then echo -e "--- TERMINAL TRANSCRIPT ---\n$(cat "$SESSION_DIR/history.txt")\n\n" >> "$TMP_CONTEXT"; fi
+
+PAYLOAD_FILE="$AGENT_DIR/payload.json"
+
+MSG_GEN="[Session: $SESSION_NAME] 🤖 Generating script (with Context & Transcript)..."
+echo "$MSG_GEN"
+
+# Safely construct the JSON Payload
+jq -Rs --arg pmt "$FULL_PROMPT" '{"contents":[{"parts":[{"text": ("Codebase & Terminal Transcript:\n\n" + . + "\n\nUser Question:\n" + $pmt)}]}]}' < "$TMP_CONTEXT" > "$PAYLOAD_FILE"
+rm -f "$TMP_CONTEXT"
+
+# Call Gemini API
+RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=$GEMINI_API_KEY" -H "Content-Type: application/json" -d @"$PAYLOAD_FILE")
+rm -f "$PAYLOAD_FILE"
+
+ERROR_MSG=$(echo "$RESPONSE" | jq -r '.error.message // empty')
+if [[ -n "$ERROR_MSG" ]]; then echo "❌ API Error: $ERROR_MSG"; exit 1; fi
+RAW_ANSWER=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // "❌ Could not parse response."')
+
+# Extract bash code
+SCRIPT_CODE=$(echo "$RAW_ANSWER" | sed -n '/^```bash/,/^```/ p' | sed '/^```/ d')
+
+if [[ -z "$SCRIPT_CODE" ]]; then 
+    ERR_MSG="[Session: $SESSION_NAME] ❌ Error: Gemini did not output a bash code block.\n$RAW_ANSWER"
+    echo -e "$ERR_MSG"
+    if [[ "$SESSION_NAME" != "Global" ]]; then echo -e "$ERR_MSG" >> "$SESSION_DIR/history.txt"; fi
+    exit 1
+fi
+
+mkdir -p "$SESSION_DIR/scripts"
+SCRIPT_FILE="scripts/gen_$(date +%s).sh"
+ABS_SCRIPT_PATH="$SESSION_DIR/$SCRIPT_FILE"
+
+echo "$SCRIPT_CODE" > "$ABS_SCRIPT_PATH"
+chmod +x "$ABS_SCRIPT_PATH"
+
+# Output to terminal
+OUT_BLOCK="${RAW_ANSWER}\n\n[Session: $SESSION_NAME] ✨ Script saved! Run it with:\n👉 agent run $ABS_SCRIPT_PATH"
+echo -e "$OUT_BLOCK"
+
+# Cleanly log the interaction into history (without double-logging the user's initial prompt)
+if [[ "$SESSION_NAME" != "Global" ]]; then 
+    echo -e "\n[AI ANSWER (Script Generated)]:\n$RAW_ANSWER\n[SYSTEM]: Script saved to $ABS_SCRIPT_PATH" >> "$SESSION_DIR/history.txt"
+fi

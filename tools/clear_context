@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+> "$SESSION_DIR/context.txt"
+MSG="[Session: $SESSION_NAME] ✨ Context cleared!"
+echo "$MSG"
+if [[ "$SESSION_NAME" != "Global" ]]; then echo "$MSG" >> "$SESSION_DIR/history.txt"; fi

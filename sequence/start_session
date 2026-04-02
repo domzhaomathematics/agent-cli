@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+NAME="$1"
+if [[ -z "$NAME" ]]; then 
+    echo "Usage: agent start_session <name>"
+    exit 1
+fi
+
+S_DIR="$AGENT_DIR/sessions/$NAME"
+
+mkdir -p "$S_DIR/logs" "$S_DIR/scripts"
+> "$S_DIR/context.txt"
+> "$S_DIR/history.txt"
+
+# Bind the terminal
+CURRENT_TTY=$(tty | sed 's|/|_|g')
+echo "$NAME" > "$AGENT_DIR/sessions/.bindings/$CURRENT_TTY"
+echo "[Session: $NAME] ✨ Workspace created and terminal bound!"
+
+# THE MAGIC: Silently run `pwd` so it gets perfectly logged in the AI's history transcript!
+"$AGENT_DIR/agent" run pwd > /dev/null

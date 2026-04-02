@@ -1,25 +1,45 @@
 #!/usr/bin/env bash
-
-PROMPT="$1"
-OUT_FILE="$AGENT_DIR/context.txt"
-PAYLOAD_FILE="$AGENT_DIR/payload.json"
-
 if [[ -z "$GEMINI_API_KEY" ]]; then echo "❌ GEMINI_API_KEY not set."; exit 1; fi
-if [[ -z "$PROMPT" ]]; then echo "Usage: agent ask \"prompt\""; exit 1; fi
+NO_CONTEXT=false; PROMPT=""
+for arg in "$@"; do
+    if [[ "$arg" == "--no-context" ]]; then NO_CONTEXT=true
+    else if [[ -z "$PROMPT" ]]; then PROMPT="$arg"; else PROMPT="$PROMPT $arg"; fi; fi
+done
 
-if [[ -s "$OUT_FILE" ]]; then
-    jq -Rs --arg pmt "$PROMPT" '{"contents": [{"parts":[{"text": ("Codebase context:\n\n" + . + "\n\nUser Question:\n" + $pmt)}]}]}' < "$OUT_FILE" > "$PAYLOAD_FILE"
-else
-    jq -n --arg pmt "$PROMPT" '{"contents": [{"parts":[{"text": $pmt}]}]}' > "$PAYLOAD_FILE"
+if [[ -z "$PROMPT" ]]; then 
+    echo -n "💬 Enter prompt: "; read -r PROMPT; echo ""
+    # Log the interactive prompt so AI sees it!
+    if [[ "$SESSION_NAME" != "Global" ]]; then echo "> $PROMPT" >> "$SESSION_DIR/history.txt"; fi
 fi
 
-RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=$GEMINI_API_KEY" \
-    -H "Content-Type: application/json" -d @"$PAYLOAD_FILE")
+TMP_CONTEXT="$AGENT_DIR/tmp_context.txt"
+> "$TMP_CONTEXT"
+if [[ "$NO_CONTEXT" == false ]]; then
+    if [[ -s "$AGENT_DIR/memory.txt" ]]; then echo -e "--- GLOBAL PROJECT MAP ---\n$(cat "$AGENT_DIR/memory.txt")\n\n" >> "$TMP_CONTEXT"; fi
+    if [[ -s "$SESSION_DIR/context.txt" ]]; then echo -e "--- SESSION CONTEXT ---\n$(cat "$SESSION_DIR/context.txt")\n\n" >> "$TMP_CONTEXT"; fi
+    if [[ -s "$SESSION_DIR/history.txt" && "$SESSION_NAME" != "Global" ]]; then echo -e "--- TERMINAL TRANSCRIPT ---\n$(cat "$SESSION_DIR/history.txt")\n\n" >> "$TMP_CONTEXT"; fi
+fi
 
+PAYLOAD_FILE="$AGENT_DIR/payload.json"
+if [[ -s "$TMP_CONTEXT" ]]; then
+    MSG_THINK="[Session: $SESSION_NAME] 🤖 Thinking (with Context & Transcript)..."
+    echo "$MSG_THINK"
+    jq -Rs --arg pmt "$PROMPT" '{"contents":[{"parts":[{"text": ("Codebase & Terminal Transcript:\n\n" + . + "\n\nUser Question:\n" + $pmt)}]}]}' < "$TMP_CONTEXT" > "$PAYLOAD_FILE"
+else
+    MSG_THINK="[Session: $SESSION_NAME] 💬 Thinking (Pure Prompt)..."
+    echo "$MSG_THINK"
+    jq -n --arg pmt "$PROMPT" '{"contents":[{"parts":[{"text": $pmt}]}]}' > "$PAYLOAD_FILE"
+fi
+if [[ "$SESSION_NAME" != "Global" ]]; then echo "$MSG_THINK" >> "$SESSION_DIR/history.txt"; fi
+rm -f "$TMP_CONTEXT"
+
+RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=$GEMINI_API_KEY" -H "Content-Type: application/json" -d @"$PAYLOAD_FILE")
 rm -f "$PAYLOAD_FILE"
 
 ERROR_MSG=$(echo "$RESPONSE" | jq -r '.error.message // empty')
 if [[ -n "$ERROR_MSG" ]]; then echo "❌ API Error: $ERROR_MSG"; exit 1; fi
+RAW_ANSWER=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // "❌ Could not parse response."')
 
-# EXACTLY and ONLY the raw response
-echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // "❌ Could not parse response."'
+OUT_BLOCK="==================== ANSWER ====================\n${RAW_ANSWER}\n================================================"
+echo -e "$OUT_BLOCK"
+if [[ "$SESSION_NAME" != "Global" ]]; then echo -e "$OUT_BLOCK" >> "$SESSION_DIR/history.txt"; fi

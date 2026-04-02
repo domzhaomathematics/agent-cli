@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+if [[ -n "$SESSION_NAME" ]]; then
+    S_DISPLAY="$SESSION_NAME"
+else
+    S_DISPLAY="None (Global Mode)"
+fi
+
+echo -e "\n🤖 Agent CLI - Minimalist AI Workspace"
+echo "Current Session: [$S_DISPLAY]"
+echo -e "\n--- Workspaces ---"
+echo "  start_session <name>  : Start and bind terminal to a new workspace"
+echo "  resume_session <name> : Bind current terminal to an existing workspace"
+echo "  stop_session          : Unbind terminal (Return to Global mode)"
+echo "  list_sessions         : List all active workspaces"
+echo "  delete_session <name> : Permanently delete a workspace and its history"
+echo -e "\n--- Actions ---"
+echo "  ask <prompt>          : Ask Gemini (Uses Memory + Context + History)"
+echo "  ask --no-context <p>  : Ask Gemini purely based on prompt"
+echo "  script <prompt>       : Ask Gemini to generate an executable bash script"
+echo "  run <command>         : Run a bash command and log output to session history"
+echo -e "\n--- Context Management ---"
+echo "  read <file/path>      : Append a file to current session's context"
+echo "  read_all              : Append all safe files in folder to session's context"
+echo "  clear_context         : Empty the current session's context"
+echo "  memorize_all          : Scan project and build global memory.txt map"
+echo ""

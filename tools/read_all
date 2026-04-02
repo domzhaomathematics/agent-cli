@@ -1,42 +1,13 @@
 #!/usr/bin/env bash
-
-OUT_FILE="$AGENT_DIR/context.txt"
-MAX_SIZE="1024k" 
-
+OUT_FILE="$SESSION_DIR/context.txt"
 echo -e "\n\n-->[read_all] Generating directory structure..." >> "$OUT_FILE"
-
-# 1. Directory Tree: Ignore hidden folders, node_modules, envs, etc.
-command find . -not -path '*/\.*' \
-    -not -path '*/node_modules/*' \
-    -not -path '*/venv/*' \
-    -not -path '*/env/*' \
-    -not -path '*/build/*' \
-    -not -path '*/dist/*' \
-    -not -path '*/__pycache__/*' \
-    -not -path "$OUT_FILE" | sort >> "$OUT_FILE"
-
+command find . -not -path '*/\.*' -not -path '*/node_modules/*' -not -path '*/venv/*' -not -path '*/build/*' -not -path '*/__pycache__/*' -not -path "$AGENT_DIR/*" | sort >> "$OUT_FILE"
 echo -e "\n--> [read_all] File Contents:" >> "$OUT_FILE"
-
-# 2. File Reader: Apply all ignores, size limit, and type filters
-command find . -type f -not -path '*/\.*' \
-    -not -path '*/node_modules/*' \
-    -not -path '*/venv/*' \
-    -not -path '*/env/*' \
-    -not -path '*/build/*' \
-    -not -path '*/dist/*' \
-    -not -path '*/__pycache__/*' \
-    -not -path "$OUT_FILE" \
-    -size -"$MAX_SIZE" | while read -r file; do
-    
-    # Check if it's readable text
-    if ! file "$file" | grep -qiE 'text|json|csv|xml|empty'; then
-        continue
-    fi
-
-    echo -e "\n========================================" >> "$OUT_FILE"
-    echo "File: $file" >> "$OUT_FILE"
-    echo "========================================" >> "$OUT_FILE"
+command find . -type f -not -path '*/\.*' -not -path '*/node_modules/*' -not -path '*/venv/*' -not -path '*/build/*' -not -path '*/__pycache__/*' -not -path "$AGENT_DIR/*" -size -1024k | while read -r file; do
+    if ! file "$file" | grep -qiE 'text|json|csv|xml|empty'; then continue; fi
+    echo -e "\n========================================\nFile: $file\n========================================" >> "$OUT_FILE"
     cat "$file" >> "$OUT_FILE"
 done
-
-echo "Done. Appended full directory safely to context.txt"
+MSG="[Session: $SESSION_NAME] ✔ Appended full safe directory to context."
+echo "$MSG"
+if [[ "$SESSION_NAME" != "Global" ]]; then echo "$MSG" >> "$SESSION_DIR/history.txt"; fi

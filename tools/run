@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+CMD="$*"
+if [[ -z "$CMD" ]]; then echo "Usage: agent run <command>"; exit 1; fi
+
+TMP_OUT=$(mktemp)
+MSG_RUN="[Session: $SESSION_NAME] ⚙️  Running: $CMD"
+echo "$MSG_RUN"
+if [[ "$SESSION_NAME" != "Global" ]]; then echo "$MSG_RUN" >> "$SESSION_DIR/history.txt"; fi
+
+eval "$CMD" > "$TMP_OUT" 2>&1
+LINES=$(wc -l < "$TMP_OUT" | xargs)
+
+if (( LINES <= 30 )); then
+    cat "$TMP_OUT"
+    if [[ "$SESSION_NAME" != "Global" ]]; then cat "$TMP_OUT" >> "$SESSION_DIR/history.txt"; fi
+else
+    LOG_PATH="sessions/$SESSION_NAME/logs/cmd_$(date +%s).txt"
+    cp "$TMP_OUT" "$AGENT_DIR/$LOG_PATH"
+    
+    head -n 15 "$TMP_OUT"
+    if [[ "$SESSION_NAME" != "Global" ]]; then head -n 15 "$TMP_OUT" >> "$SESSION_DIR/history.txt"; fi
+    
+    TRUNC_MSG="\n...[Output truncated $(($LINES - 30)) lines] ...\n"
+    echo -e "$TRUNC_MSG"
+    if [[ "$SESSION_NAME" != "Global" ]]; then echo -e "$TRUNC_MSG" >> "$SESSION_DIR/history.txt"; fi
+    
+    tail -n 15 "$TMP_OUT"
+    if [[ "$SESSION_NAME" != "Global" ]]; then tail -n 15 "$TMP_OUT" >> "$SESSION_DIR/history.txt"; fi
+    
+    MSG_WARN="\n[Session: $SESSION_NAME] ⚠️  Output too long ($LINES lines). Saved full log to: $LOG_PATH\n👉 To let Gemini read it, run: agent read $LOG_PATH"
+    echo -e "$MSG_WARN"
+    if [[ "$SESSION_NAME" != "Global" ]]; then echo -e "$MSG_WARN" >> "$SESSION_DIR/history.txt"; fi
+fi
+rm -f "$TMP_OUT"
