@@ -5,7 +5,8 @@ if ! command -v jq &> /dev/null; then echo "❌ Error: 'jq' is missing."; exit 1
 PROMPT="$*"
 if [[ -z "$PROMPT" ]]; then echo "Usage: agent do <prompt>"; exit 1; fi
 
-FULL_PROMPT="$PROMPT\n\n[SYSTEM INSTRUCTION]: Write a very brief explanation, and put the exact terminal command(s) or script inside a \`\`\`bash code block. This code will be executed in the user's current directory. NOTE: You cannot change the user's permanent directory. If you need to run commands in a different folder, chain them like \`cd folder && ./script.sh\`."
+# THE FIX: Explicit instructions for relative paths and multi-command context gathering!
+FULL_PROMPT="$PROMPT\n\n[SYSTEM INSTRUCTION]: Write a very brief explanation, and put the exact terminal command(s) or script inside a \`\`\`bash code block. This code will be executed in the user's current directory. CRITICAL RULE: If you lack the necessary context to safely complete the request, DO NOT GUESS. Instead, generate commands to gather the missing information. You can use standard Linux commands (ls, find, grep) to explore, OR use \`agent read <relative_filepath>\` to permanently append a file into the session context. If you need multiple files or pieces of info, you can output multiple commands (chained or as a multi-line script) to gather everything at once. Output ONLY the gathering commands."
 
 TMP_CONTEXT="$AGENT_DIR/tmp_context.txt"
 > "$TMP_CONTEXT"
@@ -28,6 +29,7 @@ ERROR_MSG=$(echo "$RESPONSE" | jq -r '.error.message // empty')
 if [[ -n "$ERROR_MSG" ]]; then echo "❌ API Error: $ERROR_MSG"; exit 1; fi
 RAW_ANSWER=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // "❌ Could not parse response."')
 
+# Grab the ENTIRE code block
 SUGGESTED_CMD=$(echo "$RAW_ANSWER" | sed -n '/^```bash/,/^```/ p' | sed '/^```/ d')
 
 if [[ -z "$SUGGESTED_CMD" ]]; then 
@@ -38,9 +40,11 @@ fi
 EXPLANATION=$(echo "$RAW_ANSWER" | sed '/^```bash/,/^```/ d')
 echo -e "\n🤖 Gemini:\n$EXPLANATION\n"
 
+# Count lines
 LINE_COUNT=$(echo "$SUGGESTED_CMD" | wc -l | xargs)
 
 if [[ "$LINE_COUNT" -eq 1 ]]; then
+    # SINGLE LINE
     P_USER=$(whoami 2>/dev/null || echo "user")
     P_HOST=$(hostname 2>/dev/null || echo "host")
     P_DIR=$(pwd | sed "s|^$HOME|~|")
@@ -52,6 +56,7 @@ if [[ "$LINE_COUNT" -eq 1 ]]; then
         "$AGENT_DIR/agent" run "$FINAL_CMD"
     fi
 else
+    # MULTI-LINE
     echo "================ COMMAND ================"
     echo -e "\033[36m$SUGGESTED_CMD\033[0m" 
     echo "========================================="
