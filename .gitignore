@@ -1,2 +1,5 @@
 context.txt
 index.txt
+memory.txt
+sessions/ memory.txt
+sessions/

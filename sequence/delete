@@ -3,7 +3,7 @@
 NAME="$1"
 
 if [[ -z "$NAME" ]]; then 
-    echo "Usage: agent delete_session <name>"
+    echo "Usage: agent delete <name>"
     exit 1
 fi
 
