@@ -1,56 +1,38 @@
 #!/usr/bin/env bash
+if [[ -z "$GEMINI_API_KEY" ]]; then echo "❌ GEMINI_API_KEY not set."; exit 1; fi
+if ! command -v jq &> /dev/null; then echo "❌ Error: 'jq' is missing."; exit 1; fi
 
 MEMORY_FILE="$AGENT_DIR/memory.txt"
-MAX_SIZE="1024k" 
-
-# 1. Initialize memory.txt
 > "$MEMORY_FILE"
-echo "--> Directory Structure:" >> "$MEMORY_FILE"
 
-# 2. Write Directory Tree
-command find . -not -path '*/\.*' \
-    -not -path '*/node_modules/*' \
-    -not -path '*/venv/*' \
-    -not -path '*/env/*' \
-    -not -path '*/build/*' \
-    -not -path '*/dist/*' \
-    -not -path '*/__pycache__/*' \
-    -not -path "$AGENT_DIR/*" | sort >> "$MEMORY_FILE"
+echo "--> Directory Structure:" >> "$MEMORY_FILE"
+command find . -not -path '*/\.*' -not -path '*/node_modules/*' -not -path '*/venv/*' -not -path '*/build/*' -not -path '*/__pycache__/*' -not -path "$AGENT_DIR/*" | sort >> "$MEMORY_FILE"
 
 echo -e "\n--> File Summaries (Memory Map):" >> "$MEMORY_FILE"
-echo "🧠 Starting project memorization. This may take a minute..."
+echo "[Global] 🧠 Starting project memorization. This may take a minute..."
 
-# 3. The Loop
-command find . -type f -not -path '*/\.*' \
-    -not -path '*/node_modules/*' \
-    -not -path '*/venv/*' \
-    -not -path '*/env/*' \
-    -not -path '*/build/*' \
-    -not -path '*/dist/*' \
-    -not -path '*/__pycache__/*' \
-    -not -path "$AGENT_DIR/*" \
-    -size -"$MAX_SIZE" | while read -r file; do
+command find . -type f -not -path '*/\.*' -not -path '*/node_modules/*' -not -path '*/venv/*' -not -path '*/build/*' -not -path '*/__pycache__/*' -not -path "$AGENT_DIR/*" -size -1024k | while read -r file; do
+    if ! file "$file" | grep -qiE 'text|json|csv|xml|empty'; then continue; fi
     
-    # Only process text files
-    if ! file "$file" | grep -qiE 'text|json|csv|xml|empty'; then 
-        continue
-    fi
-
     echo "Memorizing $file..."
     
-    # Clear the temporary context and read just this one file
-    agent clear_memory > /dev/null
-    agent read "$file" > /dev/null
+    # 1. We completely bypass the session context! 
+    # Read the file directly into a temporary payload for Gemini.
+    MEM_PAYLOAD="$AGENT_DIR/mem_payload.json"
+    PROMPT="Analyze this code concisely. Output ONLY a bulleted list containing: 1. Main purpose 2. Classes/Methods 3. Internal file dependencies 4. External dependencies. Do not output markdown code blocks."
     
-    # Ask Gemini to compress the file into metadata
-    SUMMARY=$(agent ask "Analyze this code concisely. Output ONLY a bulleted list containing: 1. Main purpose 2. Classes/Methods 3. Internal file dependencies 4. External dependencies.")
-
-    # Append the summary to the permanent memory file
-    echo -e "\n========================================" >> "$MEMORY_FILE"
-    echo "File: $file" >> "$MEMORY_FILE"
-    echo "========================================" >> "$MEMORY_FILE"
+    jq -Rs --arg pmt "$PROMPT" '{"contents":[{"parts":[{"text": ("File Content:\n\n" + . + "\n\nTask:\n" + $pmt)}]}]}' < "$file" > "$MEM_PAYLOAD"
+    
+    # 2. Call the API directly
+    RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=$GEMINI_API_KEY" -H "Content-Type: application/json" -d @"$MEM_PAYLOAD")
+    rm -f "$MEM_PAYLOAD"
+    
+    # 3. Extract the summary
+    SUMMARY=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // "❌ Could not parse response."')
+    
+    # 4. Append straight to the global memory map
+    echo -e "\n========================================\nFile: $file\n========================================" >> "$MEMORY_FILE"
     echo "$SUMMARY" >> "$MEMORY_FILE"
-
 done
 
-echo -e "\n✅ Done! Compressed project memory saved to: $MEMORY_FILE"
+echo -e "\n[Global] ✅ Compressed project memory saved to: $MEMORY_FILE"

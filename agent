@@ -2,22 +2,27 @@
 export AGENT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]:-$0}")")"
 mkdir -p "$AGENT_DIR/sessions/.bindings"
 
-CURRENT_TTY=$(tty | sed 's|/|_|g')
-BINDING_FILE="$AGENT_DIR/sessions/.bindings/$CURRENT_TTY"
+# THE FIX: Only resolve the TTY if a parent hasn't already done it!
+if [[ -z "$AGENT_SESSION_RESOLVED" ]]; then
+    CURRENT_TTY=$(tty | sed 's|/|_|g')
+    BINDING_FILE="$AGENT_DIR/sessions/.bindings/$CURRENT_TTY"
 
-if [[ -f "$BINDING_FILE" ]]; then
-    export SESSION_NAME=$(cat "$BINDING_FILE")
-    export SESSION_DIR="$AGENT_DIR/sessions/$SESSION_NAME"
-else
-    export SESSION_NAME=""
-    export SESSION_DIR=""
+    if [[ -f "$BINDING_FILE" ]]; then
+        export SESSION_NAME=$(cat "$BINDING_FILE")
+        export SESSION_DIR="$AGENT_DIR/sessions/$SESSION_NAME"
+    else
+        export SESSION_NAME=""
+        export SESSION_DIR=""
+    fi
+    # Mark it resolved so child 'agent' calls in loops/pipes inherit it perfectly
+    export AGENT_SESSION_RESOLVED="1"
 fi
 
 COMMAND="$1"
 shift
 if [[ -z "$COMMAND" ]]; then COMMAND="help"; fi
 
-# UPDATED BOUNCER WHITELIST
+# BOUNCER WHITELIST
 ALLOWED_WITHOUT_SESSION="help start resume stop list delete"
 
 if [[ -z "$SESSION_NAME" ]]; then
@@ -28,6 +33,7 @@ if [[ -z "$SESSION_NAME" ]]; then
     fi
 fi
 
+# LOGGING
 if [[ -n "$SESSION_NAME" ]]; then
     if [[ ! " $ALLOWED_WITHOUT_SESSION " =~ " $COMMAND " ]]; then
         P_USER=$(whoami 2>/dev/null || echo "user")
@@ -39,6 +45,7 @@ if [[ -n "$SESSION_NAME" ]]; then
     fi
 fi
 
+# ROUTING
 if [[ -x "$AGENT_DIR/tools/$COMMAND" ]]; then "$AGENT_DIR/tools/$COMMAND" "$@"
 elif [[ -x "$AGENT_DIR/sequence/$COMMAND" ]]; then "$AGENT_DIR/sequence/$COMMAND" "$@"
 elif [[ -x "$AGENT_DIR/create/$COMMAND" ]]; then "$AGENT_DIR/create/$COMMAND" "$@"
