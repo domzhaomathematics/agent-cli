@@ -2,59 +2,46 @@
 export AGENT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]:-$0}")")"
 mkdir -p "$AGENT_DIR/sessions/.bindings"
 
-# THE FIX: Only resolve the TTY if a parent hasn't already done it!
+# 1. Resolve Session
 if [[ -z "$AGENT_SESSION_RESOLVED" ]]; then
     CURRENT_TTY=$(tty | sed 's|/|_|g')
     BINDING_FILE="$AGENT_DIR/sessions/.bindings/$CURRENT_TTY"
-
     if [[ -f "$BINDING_FILE" ]]; then
         export SESSION_NAME=$(cat "$BINDING_FILE")
         export SESSION_DIR="$AGENT_DIR/sessions/$SESSION_NAME"
-    else
-        export SESSION_NAME=""
-        export SESSION_DIR=""
     fi
-    # Mark it resolved so child 'agent' calls in loops/pipes inherit it perfectly
     export AGENT_SESSION_RESOLVED="1"
 fi
 
+# 2. Handle Model Tiers
+export AGENT_MODEL="gemini-3-flash-preview"
+NEW_ARGS=()
+for arg in "$@"; do
+    if [[ "$arg" == "-s" || "$arg" == "-smartest" ]]; then
+        export AGENT_MODEL="gemini-3.1-pro-preview"
+    else
+        NEW_ARGS+=("$arg")
+    fi
+done
+set -- "${NEW_ARGS[@]}"
+
 COMMAND="$1"
 shift
-if [[ -z "$COMMAND" ]]; then COMMAND="help"; fi
+[[ -z "$COMMAND" ]] && COMMAND="help"
 
-# BOUNCER WHITELIST
-ALLOWED_WITHOUT_SESSION="help start resume stop list delete"
-
+# 3. Session Enforcement
+PUBLIC_CMDS="help start resume list delete stop ask"
 if [[ -z "$SESSION_NAME" ]]; then
-    if [[ ! " $ALLOWED_WITHOUT_SESSION " =~ " $COMMAND " ]]; then
-        echo "❌ Error: No active session found for this terminal."
-        echo "👉 Run 'agent start <name>' or 'agent resume <name>' to begin."
+    if [[ ! " $PUBLIC_CMDS " =~ " $COMMAND " ]]; then
+        echo "❌ Error: No active session found. Run 'agent start <name>' first."
         exit 1
     fi
 fi
 
-# LOGGING
-if [[ -n "$SESSION_NAME" ]]; then
-    if [[ ! " $ALLOWED_WITHOUT_SESSION " =~ " $COMMAND " ]]; then
-        P_USER=$(whoami 2>/dev/null || echo "user")
-        P_HOST=$(hostname 2>/dev/null || echo "host")
-        P_DIR=$(pwd | sed "s|^$HOME|~|")
-        CMD_STR="agent $COMMAND"
-        for arg in "$@"; do CMD_STR="$CMD_STR $(printf "%q" "$arg")"; done
-        echo -e "\n${P_USER}@${P_HOST}:${P_DIR}\$ $CMD_STR" >> "$SESSION_DIR/history.txt"
-    fi
-fi
-
-# ROUTING
+# 4. Routing
 if [[ -x "$AGENT_DIR/tools/$COMMAND" ]]; then "$AGENT_DIR/tools/$COMMAND" "$@"
-elif [[ -x "$AGENT_DIR/sequence/$COMMAND" ]]; then "$AGENT_DIR/sequence/$COMMAND" "$@"
-elif [[ -x "$AGENT_DIR/create/$COMMAND" ]]; then "$AGENT_DIR/create/$COMMAND" "$@"
+elif [[ -x "$AGENT_DIR/manage/$COMMAND" ]]; then "$AGENT_DIR/manage/$COMMAND" "$@"
 else
-    if [[ -n "$SESSION_NAME" ]]; then
-        MSG="[Session: $SESSION_NAME] ❌ Error: '$COMMAND' not found. Run 'agent help'."
-        echo "$MSG"; echo "$MSG" >> "$SESSION_DIR/history.txt"
-    else
-        echo "❌ Error: '$COMMAND' not found. Run 'agent help'."
-    fi
+    echo "❌ Error: Command '$COMMAND' not found."
     exit 1
 fi

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+if [[ -z "$SESSION_DIR" ]]; then echo "❌ Error: Session not active."; exit 1; fi
+OUT_FILE="$SESSION_DIR/context.txt"
+if [[ ! -s "$OUT_FILE" ]]; then echo "Brain is empty."; exit 0; fi
+
+echo -e "\n📊 ANALYZING CONTEXT WEIGHT..."
+
+# LC_ALL=C is the secret for Mac compatibility and binary-robustness
+LC_ALL=C awk -v cwd="$(pwd)" '
+BEGIN {
+    FS="|"; 
+    printf "\n📂 TOP-LEVEL FOLDERS (Aggregated)\n"
+    printf "%-12s %-8s %-s\n", "TOKENS", "FILES", "DIRECTORY"
+    printf "--------------------------------------------------------------------------------\n"
+}
+/---\[ FILE:/ {
+    p = $1; sub(/---\[ FILE: /, "", p); sub(/ $/, "", p);
+    t = $2; sub(/ Tokens: /, "", t); sub(/ $/, "", t);
+    m = $3; sub(/ Mode: /, "", m); sub(/ \]---/, "", m); sub(/ $/, "", m);
+
+    rel = p; gsub(cwd "/", "./", rel);
+
+    split(rel, pts, "/");
+    if (rel ~ /\// && pts[2] != "") { top = pts[1] "/" pts[2] "/"; }
+    else { top = "./ (root)"; }
+
+    tokens[rel] = t + 0;
+    modes[rel] = m;
+    dir_tokens[top] += t;
+    dir_counts[top] += 1;
+    total_t += t;
+    total_f += 1;
+}
+END {
+    for (d in dir_tokens) {
+        printf "%-12d %-8d %s\n", dir_tokens[d], dir_counts[d], d | "sort -rn | head -n 5"
+    }
+    close("sort -rn | head -n 5")
+
+    printf "\n📄 HEAVIEST INDIVIDUAL FILES\n"
+    printf "%-12s %-8s %-s\n", "TOKENS", "MODE", "FILE PATH"
+    printf "--------------------------------------------------------------------------------\n"
+    for (f in tokens) {
+        printf "%-12d %-8s %s\n", tokens[f], modes[f], f | "sort -rn | head -n 15"
+    }
+    close("sort -rn | head -n 15")
+
+    printf "--------------------------------------------------------------------------------\n"
+    printf "TOTAL CONTEXT: ~%d tokens across %d files\n\n", total_t, total_f
+}' "$OUT_FILE"

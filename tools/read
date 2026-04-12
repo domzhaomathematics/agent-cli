@@ -1,14 +1,76 @@
 #!/usr/bin/env bash
-FILE="$1"
+if [[ -z "$SESSION_DIR" ]]; then echo "❌ Error: No session active."; exit 1; fi
+
+TARGET="."
+EXCEPT=""
+ONLY_PATHS=false
+
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --except) EXCEPT="$2"; shift ;;
+        --only-paths) ONLY_PATHS=true ;;
+        *) TARGET="$1" ;;
+    esac
+    shift
+done
+
+ABS_TARGET=$(realpath "$TARGET")
 OUT_FILE="$SESSION_DIR/context.txt"
-if [[ -z "$FILE" ]]; then echo "Usage: agent read <filename>"; exit 1; fi
-if [[ -f "$FILE" ]]; then TARGET="$FILE"
-elif [[ -f "$AGENT_DIR/$FILE" ]]; then TARGET="$AGENT_DIR/$FILE"
-else MSG="[Session: $SESSION_NAME] ❌ Error: '$FILE' not found."; echo "$MSG"; [[ "$SESSION_NAME" != "Global" ]] && echo "$MSG" >> "$SESSION_DIR/history.txt"; exit 1; fi
-if [[ -z $(command find "$TARGET" -type f -size -1024k) ]]; then MSG="[Session: $SESSION_NAME] ❌ Error: File > 1MB."; echo "$MSG"; [[ "$SESSION_NAME" != "Global" ]] && echo "$MSG" >> "$SESSION_DIR/history.txt"; exit 1; fi
-if ! file "$TARGET" | grep -qiE 'text|json|csv|xml|empty'; then MSG="[Session: $SESSION_NAME] ❌ Error: Binary file."; echo "$MSG"; [[ "$SESSION_NAME" != "Global" ]] && echo "$MSG" >> "$SESSION_DIR/history.txt"; exit 1; fi
-echo -e "\n========================================\nFile: $TARGET\n========================================" >> "$OUT_FILE"
-cat "$TARGET" >> "$OUT_FILE"
-MSG="[Session: $SESSION_NAME] ✔ Appended '$TARGET' to context."
-echo "$MSG"
-if [[ "$SESSION_NAME" != "Global" ]]; then echo "$MSG" >> "$SESSION_DIR/history.txt"; fi
+touch "$OUT_FILE"
+
+process_file() {
+    local abs_f=$(realpath "$1")
+    local rel_f="./${abs_f#$PWD/}"
+    
+    # 1. Skip if already loaded
+    if grep -q -e "FILE: $abs_f |" "$OUT_FILE"; then
+        echo "   = [In Context] $rel_f"
+        return
+    fi
+
+    # 2. Check File Size (Skip files > 1MB)
+    local size_bytes=$(wc -c < "$abs_f" 2>/dev/null || echo 0)
+    if (( size_bytes > 1048576 )); then
+        echo "   ! [Skipped >1MB] $rel_f"
+        return
+    fi
+
+    # 3. Binary Filter (Blocks images, compiled code, zips, etc.)
+    if [[ -s "$abs_f" ]]; then
+        local enc=$(file -b --mime-encoding "$abs_f" 2>/dev/null)
+        if [[ "$enc" == "binary" ]]; then
+            # We silently return so your terminal doesn't get spammed with skipped images
+            return
+        fi
+    fi
+
+    # 4. Add to Context
+    if [[ "$ONLY_PATHS" == true ]]; then
+        echo "---[ FILE: $abs_f | Tokens: 5 | Mode: PATH_ONLY ]---" >> "$OUT_FILE"
+        echo "---[ END: $abs_f ]---" >> "$OUT_FILE"
+        echo "   + [Path Only] $rel_f"
+    else
+        local chars=$(wc -m < "$abs_f" 2>/dev/null || echo 0)
+        local tk=$((chars / 3))
+        echo "---[ FILE: $abs_f | Tokens: $tk | Mode: FULL ]---" >> "$OUT_FILE"
+        cat "$abs_f" >> "$OUT_FILE"
+        echo -e "\n---[ END: $abs_f ]---" >> "$OUT_FILE"
+        echo "   + [Added] $rel_f (~$tk tokens)"
+    fi
+}
+
+FIND_CMD=(find "$ABS_TARGET" -type f -not -path '*/.*')
+if [[ -n "$EXCEPT" ]]; then
+    IFS=',' read -ra ADDR <<< "$EXCEPT"
+    for part in "${ADDR[@]}"; do
+        FIND_CMD+=(-not -path "*/$part/*" -not -name "$part")
+    done
+fi
+
+if [[ -f "$ABS_TARGET" ]]; then
+    process_file "$ABS_TARGET"
+else
+    while read -r file; do
+        process_file "$file"
+    done < <("${FIND_CMD[@]}" 2>/dev/null)
+fi

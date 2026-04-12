@@ -1,45 +1,70 @@
 #!/usr/bin/env bash
-if [[ -z "$GEMINI_API_KEY" ]]; then echo "❌ GEMINI_API_KEY not set."; exit 1; fi
-NO_CONTEXT=false; PROMPT=""
-for arg in "$@"; do
-    if [[ "$arg" == "--no-context" ]]; then NO_CONTEXT=true
-    else if [[ -z "$PROMPT" ]]; then PROMPT="$arg"; else PROMPT="$PROMPT $arg"; fi; fi
-done
+PROMPT="$*"
+if [[ -z "$PROMPT" ]]; then echo -n "💬 Enter prompt: "; read -r PROMPT; fi
 
-if [[ -z "$PROMPT" ]]; then 
-    echo -n "💬 Enter prompt: "; read -r PROMPT; echo ""
-    # Log the interactive prompt so AI sees it!
-    if [[ "$SESSION_NAME" != "Global" ]]; then echo "> $PROMPT" >> "$SESSION_DIR/history.txt"; fi
-fi
-
-TMP_CONTEXT="$AGENT_DIR/tmp_context.txt"
+TMP_CONTEXT="$AGENT_DIR/tmp_payload.txt"
 > "$TMP_CONTEXT"
-if [[ "$NO_CONTEXT" == false ]]; then
-    if [[ -s "$AGENT_DIR/memory.txt" ]]; then echo -e "--- GLOBAL PROJECT MAP ---\n$(cat "$AGENT_DIR/memory.txt")\n\n" >> "$TMP_CONTEXT"; fi
-    if [[ -s "$SESSION_DIR/context.txt" ]]; then echo -e "--- SESSION CONTEXT ---\n$(cat "$SESSION_DIR/context.txt")\n\n" >> "$TMP_CONTEXT"; fi
-    if [[ -s "$SESSION_DIR/history.txt" && "$SESSION_NAME" != "Global" ]]; then echo -e "--- TERMINAL TRANSCRIPT ---\n$(cat "$SESSION_DIR/history.txt")\n\n" >> "$TMP_CONTEXT"; fi
+
+# 1. Build Payload based on Session or Global mode
+if [[ -n "$SESSION_DIR" ]]; then
+    # --- SESSION MODE (Context Aware) ---
+    echo "WORKING_DIRECTORY: $(pwd)" > "$TMP_CONTEXT"
+    
+    if [[ -s "$SESSION_DIR/context.txt" ]]; then
+        echo -e "\n--- PROJECT CONTEXT ---" >> "$TMP_CONTEXT"
+        # Pure-Bash Absolute -> Relative Translation
+        while read -r line || [[ -n "$line" ]]; do
+            if [[ "$line" == "---[ FILE: "* ]]; then
+                abs_path=$(echo "$line" | awk -F'FILE: | \\|' '{print $2}' | xargs)
+                meta=$(echo "$line" | awk -F'\\| ' '{print $2 " | " $3}')
+                rel_path="./${abs_path#$PWD/}"
+                echo "---[ FILE: $rel_path | $meta" >> "$TMP_CONTEXT"
+            elif [[ "$line" == "---[ END: "* ]]; then
+                abs_path=$(echo "$line" | awk -F'END: | ' '{print $2}' | xargs)
+                rel_path="./${abs_path#$PWD/}"
+                echo "---[ END: $rel_path ]---" >> "$TMP_CONTEXT"
+            else
+                echo "$line" >> "$TMP_CONTEXT"
+            fi
+        done < "$SESSION_DIR/context.txt"
+    fi
+
+    [[ -s "$SESSION_DIR/history.txt" ]] && tail -n 30 "$SESSION_DIR/history.txt" >> "$TMP_CONTEXT"
+    
+    CHARS=$(wc -m < "$TMP_CONTEXT" 2>/dev/null || echo 0)
+    TOKENS=$((CHARS / 3))
+    MSG="[Session: $SESSION_NAME] 🤖 Thinking (Model: $AGENT_MODEL | ~$TOKENS tokens)..."
+else
+    # --- GLOBAL MODE (Pure Prompt) ---
+    MSG="[Global] 💬 Thinking (Model: $AGENT_MODEL | Pure Prompt)..."
 fi
 
+echo "$MSG"
+
+# 2. Package into JSON for Gemini
 PAYLOAD_FILE="$AGENT_DIR/payload.json"
 if [[ -s "$TMP_CONTEXT" ]]; then
-    MSG_THINK="[Session: $SESSION_NAME] 🤖 Thinking (with Context & Transcript)..."
-    echo "$MSG_THINK"
-    jq -Rs --arg pmt "$PROMPT" '{"contents":[{"parts":[{"text": ("Codebase & Terminal Transcript:\n\n" + . + "\n\nUser Question:\n" + $pmt)}]}]}' < "$TMP_CONTEXT" > "$PAYLOAD_FILE"
+    jq -Rs --arg pmt "$PROMPT" '{"contents":[{"parts":[{"text": ("Context & Paths:\n\n" + . + "\n\nUser Question:\n" + $pmt)}]}]}' < "$TMP_CONTEXT" > "$PAYLOAD_FILE"
 else
-    MSG_THINK="[Session: $SESSION_NAME] 💬 Thinking (Pure Prompt)..."
-    echo "$MSG_THINK"
     jq -n --arg pmt "$PROMPT" '{"contents":[{"parts":[{"text": $pmt}]}]}' > "$PAYLOAD_FILE"
 fi
-if [[ "$SESSION_NAME" != "Global" ]]; then echo "$MSG_THINK" >> "$SESSION_DIR/history.txt"; fi
-rm -f "$TMP_CONTEXT"
 
-RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=$GEMINI_API_KEY" -H "Content-Type: application/json" -d @"$PAYLOAD_FILE")
-rm -f "$PAYLOAD_FILE"
+# 3. Call the API
+RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/${AGENT_MODEL}:generateContent?key=$GEMINI_API_KEY" \
+    -H "Content-Type: application/json" -d @"$PAYLOAD_FILE")
 
-ERROR_MSG=$(echo "$RESPONSE" | jq -r '.error.message // empty')
-if [[ -n "$ERROR_MSG" ]]; then echo "❌ API Error: $ERROR_MSG"; exit 1; fi
-RAW_ANSWER=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // "❌ Could not parse response."')
+rm -f "$PAYLOAD_FILE" "$TMP_CONTEXT"
 
-OUT_BLOCK="==================== ANSWER ====================\n${RAW_ANSWER}\n================================================"
-echo -e "$OUT_BLOCK"
-if [[ "$SESSION_NAME" != "Global" ]]; then echo -e "$OUT_BLOCK" >> "$SESSION_DIR/history.txt"; fi
+# 4. Parse Response Safely
+RESULT=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty')
+if [[ -z "$RESULT" ]]; then
+    ERROR_MSG=$(echo "$RESPONSE" | jq -r '.error.message // "Unknown API Error"')
+    RESULT="❌ API Error: $ERROR_MSG\n\nRaw Response: $RESPONSE"
+fi
+
+echo -e "\n==================== ANSWER ====================\n$RESULT\n================================================"
+
+# 5. Log History if in a Session
+if [[ -n "$SESSION_DIR" ]]; then
+    echo -e "\n> $PROMPT\n$RESULT" >> "$SESSION_DIR/history.txt"
+fi

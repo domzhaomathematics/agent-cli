@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+if [[ -z "$SESSION_DIR" ]]; then echo "❌ Error: Session not active."; exit 1; fi
+> "$SESSION_DIR/context.txt"
+echo "[Session: $SESSION_NAME] ✨ Context cleared!"

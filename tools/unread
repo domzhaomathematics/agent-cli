@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+if [[ -z "$SESSION_DIR" ]]; then echo "❌ Error: Session not active."; exit 1; fi
+
+TARGET="${1:-.}"
+ABS_TARGET=$(realpath "$TARGET")
+OUT_FILE="$SESSION_DIR/context.txt"
+
+if [[ ! -s "$OUT_FILE" ]]; then
+    echo "Brain is already empty."
+    exit 0
+fi
+
+# 1. Clean Relative Path Display
+if [[ "$ABS_TARGET" == "$PWD" ]]; then
+    REL_PATH="."
+else
+    REL_PATH="./${ABS_TARGET#$PWD/}"
+fi
+
+# 2. Determine if Target is a Directory or File
+if [[ -d "$ABS_TARGET" ]]; then
+    IS_DIR=1
+else
+    IS_DIR=0
+fi
+
+# 3. Count files before removal
+BEFORE=$(grep -c -e "^---\[ FILE: " "$OUT_FILE" 2>/dev/null || echo 0)
+
+# 4. Use AWK for Safe Block Removal (Cross-Platform / No Mac Sed Bugs)
+awk -v target="$ABS_TARGET" -v is_dir="$IS_DIR" '
+BEGIN { skip = 0 }
+/^---\[ FILE: / {
+    # Extract clean absolute path from the marker
+    p = $0; sub(/^---\[ FILE: /, "", p); sub(/ \|.*$/, "", p);
+    
+    if (is_dir == 1) {
+        # If directory, match exact path or any file inside it
+        if (p == target || index(p, target "/") == 1) {
+            skip = 1;
+        }
+    } else {
+        # If file, match exact path
+        if (p == target) {
+            skip = 1;
+        }
+    }
+}
+{
+    # Print the line only if we are NOT skipping
+    if (skip == 0) print $0
+}
+/^---\[ END: / {
+    # Reset the skip flag at the end of the removed block
+    if (skip == 1) skip = 0
+}' "$OUT_FILE" > "${OUT_FILE}.tmp" && mv "${OUT_FILE}.tmp" "$OUT_FILE"
+
+# 5. Count files after removal
+AFTER=$(grep -c -e "^---\[ FILE: " "$OUT_FILE" 2>/dev/null || echo 0)
+REMOVED=$((BEFORE - AFTER))
+
+# 6. Output Status
+if [[ "$IS_DIR" -eq 1 ]]; then
+    echo "   - [Removed Directory] $REL_PATH ($REMOVED files removed)"
+else
+    if [[ "$REMOVED" -gt 0 ]]; then
+        echo "   - [Removed File] $REL_PATH"
+    else
+        echo "   = [Skipped] $REL_PATH (Not in context)"
+    fi
+fi
