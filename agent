@@ -2,13 +2,24 @@
 export AGENT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]:-$0}")")"
 mkdir -p "$AGENT_DIR/sessions/.bindings"
 
-# 1. Resolve Session
+# 1. Resolve Session (With Ghost-Tab Protection & Log Cleanup)
 if [[ -z "$AGENT_SESSION_RESOLVED" ]]; then
     CURRENT_TTY=$(tty | sed 's|/|_|g')
     BINDING_FILE="$AGENT_DIR/sessions/.bindings/$CURRENT_TTY"
     if [[ -f "$BINDING_FILE" ]]; then
-        export SESSION_NAME=$(cat "$BINDING_FILE")
-        export SESSION_DIR="$AGENT_DIR/sessions/$SESSION_NAME"
+        BIND_DATA=$(cat "$BINDING_FILE")
+        B_NAME="${BIND_DATA%:*}"
+        B_PID="${BIND_DATA#*:}"
+        
+        # Check if the terminal process that started this session is still alive
+        if [[ -z "$B_PID" || "$B_PID" == "$B_NAME" ]] || ps -p "$B_PID" >/dev/null 2>&1; then
+            export SESSION_NAME="$B_NAME"
+            export SESSION_DIR="$AGENT_DIR/sessions/$SESSION_NAME"
+        else
+            # The tab was closed! Wipe the abandoned logs and clean up the ghost binding.
+            rm -f "$AGENT_DIR/sessions/$B_NAME/logs/terminal_raw.log"
+            rm -f "$BINDING_FILE"
+        fi
     fi
     export AGENT_SESSION_RESOLVED="1"
 fi
@@ -38,9 +49,9 @@ if [[ -z "$SESSION_NAME" ]]; then
     fi
 fi
 
-# 4. Routing
-if [[ -x "$AGENT_DIR/tools/$COMMAND" ]]; then "$AGENT_DIR/tools/$COMMAND" "$@"
-elif [[ -x "$AGENT_DIR/manage/$COMMAND" ]]; then "$AGENT_DIR/manage/$COMMAND" "$@"
+# 4. Routing (using 'exec' allows child scripts to target the parent shell directly)
+if [[ -x "$AGENT_DIR/tools/$COMMAND" ]]; then exec "$AGENT_DIR/tools/$COMMAND" "$@"
+elif [[ -x "$AGENT_DIR/manage/$COMMAND" ]]; then exec "$AGENT_DIR/manage/$COMMAND" "$@"
 else
     echo "❌ Error: Command '$COMMAND' not found."
     exit 1

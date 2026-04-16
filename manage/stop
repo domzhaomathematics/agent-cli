@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
-CURRENT_TTY=$(tty | sed 's|/|_|g')
-rm -f "$AGENT_DIR/sessions/.bindings/$CURRENT_TTY"
-echo "[Global] 🛑 Terminal unbound. Returned to global mode."
+
+if [[ -n "$SESSION_NAME" ]]; then
+    # Instantly kill the user's interactive subshell.
+    # This automatically drops control back to manage/start, which executes the log cleanup!
+    kill -9 $PPID
+else
+    echo "[Global] You are already in global mode."
+fi

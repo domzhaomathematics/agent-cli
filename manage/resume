@@ -1,7 +1,25 @@
 #!/usr/bin/env bash
+
 NAME="$1"
 if [[ ! -d "$AGENT_DIR/sessions/$NAME" ]]; then echo "❌ Error: Session '$NAME' does not exist."; exit 1; fi
 
+S_DIR="$AGENT_DIR/sessions/$NAME"
 CURRENT_TTY=$(tty | sed 's|/|_|g')
-echo "$NAME" > "$AGENT_DIR/sessions/.bindings/$CURRENT_TTY"
-echo "[Session: $NAME] 🔄 Terminal bound to existing workspace."
+echo "$NAME:$$" > "$AGENT_DIR/sessions/.bindings/$CURRENT_TTY"
+
+echo "[Session: $NAME] 🔄 Resuming workspace. Dropping into monitored shell..."
+
+export AGENT_SESSION_RESOLVED="1"
+export SESSION_NAME="$NAME"
+export SESSION_DIR="$S_DIR"
+
+if [[ "$(uname)" == "Darwin" ]]; then
+    script -a -F -q "$S_DIR/logs/terminal_raw.log"
+else
+    script -a -f -q "$S_DIR/logs/terminal_raw.log"
+fi
+
+# 🛑 CLEANUP: This runs the moment the subshell exits or is stopped!
+rm -f "$AGENT_DIR/sessions/.bindings/$CURRENT_TTY"
+rm -f "$S_DIR/logs/terminal_raw.log"
+echo "[Global] 🛑 Session ended. Logs cleared. Terminal unbound."

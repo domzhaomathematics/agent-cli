@@ -11,11 +11,23 @@ S_DIR="$AGENT_DIR/sessions/$NAME"
 mkdir -p "$S_DIR/logs" "$S_DIR/scripts"
 > "$S_DIR/context.txt"
 > "$S_DIR/history.txt"
+> "$S_DIR/logs/terminal_raw.log"
 
-# Bind the terminal
 CURRENT_TTY=$(tty | sed 's|/|_|g')
-echo "$NAME" > "$AGENT_DIR/sessions/.bindings/$CURRENT_TTY"
-echo "[Session: $NAME] ✨ Workspace created and terminal bound!"
+echo "$NAME:$$" > "$AGENT_DIR/sessions/.bindings/$CURRENT_TTY"
+echo "[Session: $NAME] ✨ Workspace created. Dropping into monitored shell..."
 
-# THE MAGIC: Silently run `pwd` so it gets perfectly logged in the AI's history transcript!
-"$AGENT_DIR/agent" run pwd > /dev/null
+export AGENT_SESSION_RESOLVED="1"
+export SESSION_NAME="$NAME"
+export SESSION_DIR="$S_DIR"
+
+if [[ "$(uname)" == "Darwin" ]]; then
+    script -F -q "$S_DIR/logs/terminal_raw.log"
+else
+    script -f -q "$S_DIR/logs/terminal_raw.log"
+fi
+
+# 🛑 CLEANUP: This runs the moment the subshell exits or is stopped!
+rm -f "$AGENT_DIR/sessions/.bindings/$CURRENT_TTY"
+rm -f "$S_DIR/logs/terminal_raw.log"
+echo "[Global] 🛑 Session ended. Logs cleared. Terminal unbound."
