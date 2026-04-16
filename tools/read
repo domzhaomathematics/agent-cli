@@ -23,8 +23,9 @@ process_file() {
     local rel_f="./${abs_f#$PWD/}"
     local is_update=false
     
-    # 1. Check if already loaded. Use -F (Fixed String) to avoid regex injection from weird filenames.
-    if grep -q -F "---[ FILE: $abs_f |" "$OUT_FILE"; then
+    # 1. Check if already loaded. 
+    # Use -F (Fixed String) to avoid regex issues, and -e so grep doesn't think "---" is a flag!
+    if grep -q -F -e "---[ FILE: $abs_f |" "$OUT_FILE"; then
         # Silently unread (remove) the old block from the context
         "$AGENT_DIR/tools/unread" "$abs_f" >/dev/null 2>&1
         is_update=true
