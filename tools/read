@@ -21,17 +21,19 @@ touch "$OUT_FILE"
 process_file() {
     local abs_f=$(realpath "$1")
     local rel_f="./${abs_f#$PWD/}"
+    local is_update=false
     
-    # 1. Skip if already loaded
-    if grep -q -e "FILE: $abs_f |" "$OUT_FILE"; then
-        echo "   = [In Context] $rel_f"
-        return
+    # 1. Check if already loaded. Use -F (Fixed String) to avoid regex injection from weird filenames.
+    if grep -q -F "---[ FILE: $abs_f |" "$OUT_FILE"; then
+        # Silently unread (remove) the old block from the context
+        "$AGENT_DIR/tools/unread" "$abs_f" >/dev/null 2>&1
+        is_update=true
     fi
 
     # 2. Check File Size (Skip files > 1MB)
     local size_bytes=$(wc -c < "$abs_f" 2>/dev/null || echo 0)
     if (( size_bytes > 1048576 )); then
-        echo "   ! [Skipped >1MB] $rel_f"
+        echo "   ![Skipped >1MB] $rel_f"
         return
     fi
 
@@ -48,14 +50,24 @@ process_file() {
     if [[ "$ONLY_PATHS" == true ]]; then
         echo "---[ FILE: $abs_f | Tokens: 5 | Mode: PATH_ONLY ]---" >> "$OUT_FILE"
         echo "---[ END: $abs_f ]---" >> "$OUT_FILE"
-        echo "   + [Path Only] $rel_f"
+        
+        if [[ "$is_update" == true ]]; then
+            echo "   ↻ [Updated Path] $rel_f"
+        else
+            echo "   + [Path Only] $rel_f"
+        fi
     else
         local chars=$(wc -m < "$abs_f" 2>/dev/null || echo 0)
         local tk=$((chars / 3))
         echo "---[ FILE: $abs_f | Tokens: $tk | Mode: FULL ]---" >> "$OUT_FILE"
         cat "$abs_f" >> "$OUT_FILE"
         echo -e "\n---[ END: $abs_f ]---" >> "$OUT_FILE"
-        echo "   + [Added] $rel_f (~$tk tokens)"
+        
+        if [[ "$is_update" == true ]]; then
+            echo "   ↻ [Updated] $rel_f (~$tk tokens)"
+        else
+            echo "   + [Added] $rel_f (~$tk tokens)"
+        fi
     fi
 }
 
