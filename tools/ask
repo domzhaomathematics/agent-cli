@@ -5,6 +5,16 @@ if [[ -z "$PROMPT" ]]; then echo -n "💬 Enter prompt: "; read -r PROMPT; fi
 TMP_CONTEXT="$AGENT_DIR/tmp_payload.txt"
 > "$TMP_CONTEXT"
 
+# 0. Load Plan if exists
+PLAN_HEADER=""
+if [[ -f "$SESSION_DIR/plan.md" ]]; then
+  PLAN_HEADER="--- MISSION PLAN ---
+$(cat "$SESSION_DIR/plan.md")
+------------------
+
+"
+fi
+
 # 1. Build Payload based on Session or Global mode
 if [[ -n "$SESSION_DIR" ]]; then
     echo "WORKING_DIRECTORY: $(pwd)" > "$TMP_CONTEXT"
@@ -53,9 +63,9 @@ echo "$MSG"
 # 2. Package into JSON for Gemini
 PAYLOAD_FILE="$AGENT_DIR/payload.json"
 if [[ -s "$TMP_CONTEXT" ]]; then
-    jq -Rs --arg pmt "$PROMPT" '{"contents":[{"parts":[{"text": ("Context & Paths:\n\n" + . + "\n\nUser Question:\n" + $pmt)}]}]}' < "$TMP_CONTEXT" > "$PAYLOAD_FILE"
+    jq -Rs --arg pmt "$PROMPT" --arg plan "$PLAN_HEADER" '{"contents":[{"parts":[{"text": ("Context & Paths:\n\n" + . + "\n\nUser Question:\n" + $plan + $pmt)}]}]}' < "$TMP_CONTEXT" > "$PAYLOAD_FILE"
 else
-    jq -n --arg pmt "$PROMPT" '{"contents":[{"parts":[{"text": $pmt}]}]}' > "$PAYLOAD_FILE"
+    jq -n --arg pmt "$PROMPT" --arg plan "$PLAN_HEADER" '{"contents":[{"parts":[{"text": ($plan + $pmt)}]}]}' > "$PAYLOAD_FILE"
 fi
 
 # 3. Call the API

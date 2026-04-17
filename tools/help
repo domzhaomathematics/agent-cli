@@ -14,6 +14,7 @@ echo "  clear                 : Wipe all context for the current session"
 echo "  context               : Dashboard (df -h) showing loaded files and token counts"
 
 echo -e "\n--- 💬 Interaction ---"
+  plan <goal>           : Iteratively build a mission plan (plan.md)
 echo "  ask <prompt>          : Ask Gemini using all loaded context + history"
 echo "                          Flag: -s or -smartest to use Gemini 3.1 Pro"
 

@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+if [[ -z "$SESSION_DIR" ]]; then echo "❌ Error: Session not active."; exit 1; fi
+export AGENT_MODEL="gemini-3.1-pro-preview"
+
+GOAL="$*"
+if [[ -z "$GOAL" ]]; then echo -n "🎯 What is your goal? "; read -r GOAL; fi
+
+CURRENT_PROPOSAL=""
+FEEDBACK=""
+
+while true; do
+    echo -e "
+🤖 Thinking (Model: $AGENT_MODEL)..."
+    
+    # 1. Build Payload (Context + Goal + Feedback)
+    CONTEXT_STR=""
+    [[ -s "$SESSION_DIR/context.txt" ]] && CONTEXT_STR=$(cat "$SESSION_DIR/context.txt")
+    
+    PROMPT="You are a project planner. Create a structured 'plan.md' for the following goal.
+    
+GOAL: $GOAL
+${FEEDBACK:+USER FEEDBACK ON PREVIOUS DRAFT: $FEEDBACK}
+
+FORMAT REQUIREMENTS:
+1. Start with the goal (in your own words). Be very concise, but exhaustive and precise with all the relevant information so we don't forget.
+2. A section '## The Plan' with the numbered plan.
+
+Output ONLY the Markdown content. Do not explain yourself."
+
+    PAYLOAD=$(jq -n --arg pmt "$PROMPT" --arg ctx "$CONTEXT_STR" \
+      '{"contents":[{"parts":[{"text": ("Current Context:
+" + $ctx + "
+
+User Goal:
+" + $pmt)}]}]}')
+    
+    RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/${AGENT_MODEL}:generateContent?key=$GEMINI_API_KEY" \
+      -H "Content-Type: application/json" -d "$PAYLOAD")
+    
+    CURRENT_PROPOSAL=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty')
+    
+    if [[ -z "$CURRENT_PROPOSAL" ]]; then
+        echo "❌ API Error: $(echo "$RESPONSE" | jq -r '.error.message // "Unknown error"')"
+        exit 1
+    fi
+    
+    # 2. Display Result
+    echo -e "
+==================== PROPOSED PLAN ====================
+"
+    echo "$CURRENT_PROPOSAL"
+    echo -e "
+======================================================="
+    
+    # 3. Decision Loop
+    echo -ne "
+✅ [y] Accept | ❌ [n] Cancel | 💬 or type feedback to refine: "
+    read -r USER_INPUT
+    
+    case "$USER_INPUT" in
+        y|Y|yes|Yes)
+            echo "$CURRENT_PROPOSAL" > "$SESSION_DIR/plan.md"
+            echo -e "
+✨ Plan saved to plan.md! It is now pinned to your context."
+            break
+            ;;
+        n|N|no|No)
+            echo -e "
+🛑 Planning cancelled."
+            break
+            ;;
+        *)
+            FEEDBACK="$USER_INPUT"
+            # Continue loop
+            ;;
+    esac
+done
