@@ -100,7 +100,7 @@ Output ONLY the Markdown content. Do not explain yourself."
     rm -f "$PAYLOAD_FILE" "$TMP_CONTEXT"
     
     if [[ -z "$CURRENT_PROPOSAL" ]]; then
-        echo "❌ API Error: $(echo "$RESPONSE" | jq -r '.error.message // "Unknown error"')"
+        echo "API Error: $(echo "$RESPONSE" | jq -r '.error.message // "Unknown error"')"
         exit 1
     fi
     
@@ -110,7 +110,7 @@ Output ONLY the Markdown content. Do not explain yourself."
     echo -e "\n======================================================="
     
     # 3. Decision Loop
-    echo -ne "\n✅ [y] Accept | ❌[n] Cancel | 💬 or type feedback to refine: "
+    echo -ne "\n[y] Accept | [n] Cancel | or type feedback to refine: "
     read -r USER_INPUT
     
     case "$USER_INPUT" in
@@ -120,7 +120,7 @@ Output ONLY the Markdown content. Do not explain yourself."
             break
             ;;
         n|N|no|No)
-            echo -e "\n🛑 Planning cancelled."
+            echo -e "\nPlanning cancelled."
             break
             ;;
         *)
