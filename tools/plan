@@ -9,35 +9,95 @@ CURRENT_PROPOSAL=""
 FEEDBACK=""
 
 while true; do
-    echo -e "
-🤖 Thinking (Model: $AGENT_MODEL)..."
+    echo -e "\n🤖 Thinking (Model: $AGENT_MODEL)..."
     
-    # 1. Build Payload (Context + Goal + Feedback)
-    CONTEXT_STR=""
-    [[ -s "$SESSION_DIR/context.txt" ]] && CONTEXT_STR=$(cat "$SESSION_DIR/context.txt")
+    # 1. Build Payload (Parity with Ask: Context + Logs + Plan + Goal)
+    TMP_CONTEXT="$AGENT_DIR/tmp_payload.txt"
+    > "$TMP_CONTEXT"
     
-    PROMPT="You are a project planner. Create a structured 'plan.md' for the following goal.
+    echo "WORKING_DIRECTORY: $(pwd)" > "$TMP_CONTEXT"
     
-GOAL: $GOAL
+    # Inject project files safely
+    if [[ -s "$SESSION_DIR/context.txt" ]]; then
+        echo -e "\n--- PROJECT CONTEXT ---" >> "$TMP_CONTEXT"
+        while read -r line || [[ -n "$line" ]]; do
+            if [[ "$line" == "---[ FILE: "* ]]; then
+                abs_path=$(echo "$line" | awk -F'FILE: | \\|' '{print $2}' | xargs)
+                meta=$(echo "$line" | awk -F'\\| ' '{print $2 " | " $3}')
+                rel_path="./${abs_path#$PWD/}"
+                echo "---[ FILE: $rel_path | $meta" >> "$TMP_CONTEXT"
+            elif [[ "$line" == "---[ END: "* ]]; then
+                abs_path=$(echo "$line" | awk -F'END: | ' '{print $2}' | xargs)
+                rel_path="./${abs_path#$PWD/}"
+                echo "---[ END: $rel_path ]---" >> "$TMP_CONTEXT"
+            else
+                echo "$line" >> "$TMP_CONTEXT"
+            fi
+        done < "$SESSION_DIR/context.txt"
+    fi
+
+    # Inject command history
+    [[ -s "$SESSION_DIR/history.txt" ]] && tail -n 30 "$SESSION_DIR/history.txt" >> "$TMP_CONTEXT"
+
+    # Inject terminal logs
+    if [[ -f "$SESSION_DIR/logs/terminal_raw.log" ]]; then
+        echo -e "\n--- RECENT TERMINAL OUTPUT ---" >> "$TMP_CONTEXT"
+        cat "$SESSION_DIR/logs/terminal_raw.log" \
+            | perl -pe 's/\x1b\[[\x30-\x3F]*[\x20-\x2F]*[\x40-\x7E]//g' \
+            | perl -pe 's/\x1b\][^\x07\x1b]*[\x07\x1b]//g' \
+            | perl -pe 's/\x1b[()][A-Z0-9]//g' \
+            | col -b \
+            | grep -a -v -E "(FILTERED TERMINAL LOGS|--------------------------------------------------|==================== ANSWER ====================|🤖 Thinking|💬 Thinking)" \
+            | tail -n 60 >> "$TMP_CONTEXT"
+    fi
+
+    # Inject existing plan
+    EXISTING_PLAN=""
+    if [[ -f "$SESSION_DIR/plan.md" ]]; then
+        EXISTING_PLAN="--- EXISTING MISSION PLAN ---
+$(cat "$SESSION_DIR/plan.md")
+---------------------------
+"
+    fi
+
+    PROMPT="You are an expert technical project planner.
+
+${EXISTING_PLAN}
+
+NEW GOAL / REQUEST: $GOAL
 ${FEEDBACK:+USER FEEDBACK ON PREVIOUS DRAFT: $FEEDBACK}
 
+INSTRUCTIONS:
+1. If an EXISTING MISSION PLAN is provided, heavily factor it into your response. Update, refine, or rewrite it based on the NEW GOAL, recent terminal context, and project context.
+2. If the new goal is an addition, adapt the existing plan accordingly.
+3. If there is no existing plan, create one from scratch.
+
 FORMAT REQUIREMENTS:
-1. Start with the goal (in your own words). Be very concise, but exhaustive and precise with all the relevant information so we don't forget.
-2. A section '## The Plan' with the numbered plan.
+1. A section '## Goal': A single, concise, precise, and exhaustive paragraph defining the objective. It must be actionable enough that a junior developer would know exactly what to do without further clarification.
+2. A section '## The Plan': A numbered list of sequential steps (1., 2., 3., etc.). Do NOT use checkboxes ([ ] or [x]).
+3. A section '## Completion Criteria': Explicitly state exactly how we will logically or functionally know that this goal has been successfully finished.
 
 Output ONLY the Markdown content. Do not explain yourself."
 
-    PAYLOAD=$(jq -n --arg pmt "$PROMPT" --arg ctx "$CONTEXT_STR" \
-      '{"contents":[{"parts":[{"text": ("Current Context:
-" + $ctx + "
-
-User Goal:
-" + $pmt)}]}]}')
+    PAYLOAD_FILE="$AGENT_DIR/payload.json"
+    
+    # Slurp via jq stream to bypass ARG_MAX limitations
+    if [[ -s "$TMP_CONTEXT" ]]; then
+        jq -Rs --arg pmt "$PROMPT" \
+          '{"contents":[{"parts":[{"text": ("Current Context & Logs:\n\n" + . + "\n\n" + $pmt)}]}]}' \
+          < "$TMP_CONTEXT" > "$PAYLOAD_FILE"
+    else
+        jq -n --arg pmt "$PROMPT" \
+          '{"contents":[{"parts":[{"text": $pmt}]}]}' \
+          > "$PAYLOAD_FILE"
+    fi
     
     RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/${AGENT_MODEL}:generateContent?key=$GEMINI_API_KEY" \
-      -H "Content-Type: application/json" -d "$PAYLOAD")
+      -H "Content-Type: application/json" -d @"$PAYLOAD_FILE")
     
     CURRENT_PROPOSAL=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty')
+    
+    rm -f "$PAYLOAD_FILE" "$TMP_CONTEXT"
     
     if [[ -z "$CURRENT_PROPOSAL" ]]; then
         echo "❌ API Error: $(echo "$RESPONSE" | jq -r '.error.message // "Unknown error"')"
@@ -45,33 +105,26 @@ User Goal:
     fi
     
     # 2. Display Result
-    echo -e "
-==================== PROPOSED PLAN ====================
-"
+    echo -e "\n==================== PROPOSED PLAN ====================\n"
     echo "$CURRENT_PROPOSAL"
-    echo -e "
-======================================================="
+    echo -e "\n======================================================="
     
     # 3. Decision Loop
-    echo -ne "
-✅ [y] Accept | ❌ [n] Cancel | 💬 or type feedback to refine: "
+    echo -ne "\n✅ [y] Accept | ❌[n] Cancel | 💬 or type feedback to refine: "
     read -r USER_INPUT
     
     case "$USER_INPUT" in
         y|Y|yes|Yes)
             echo "$CURRENT_PROPOSAL" > "$SESSION_DIR/plan.md"
-            echo -e "
-✨ Plan saved to plan.md! It is now pinned to your context."
+            echo -e "\n✨ Plan saved to plan.md! It is now pinned to your context."
             break
             ;;
         n|N|no|No)
-            echo -e "
-🛑 Planning cancelled."
+            echo -e "\n🛑 Planning cancelled."
             break
             ;;
         *)
             FEEDBACK="$USER_INPUT"
-            # Continue loop
             ;;
     esac
 done
