@@ -8,16 +8,10 @@ LINES=${1:-150}
 QUIET=0
 if [[ "$1" == "-q" || "$2" == "-q" ]]; then QUIET=1; fi
 
-if [[ $QUIET -eq 0 ]]; then echo -e "\n--- FILTERED TERMINAL LOGS (Last $LINES lines) ---"; fi
+if [[ $QUIET -eq 0 ]]; then echo -e "\n--- RAW TERMINAL LOGS (Last $LINES lines) ---"; fi
 
-cat "$LOG_FILE" \
-    | perl -pe 's/\x1b\[[\x30-\x3F]*[\x20-\x2F]*[\x40-\x7E]//g' \
-    | perl -pe 's/\x1b\][^\x07\x1b]*[\x07\x1b]//g' \
-    | perl -pe 's/\x1b[()][A-Z0-9]//g' \
-    | col -b \
-    | awk '/^---\[ SCRIPT BLOCK START \]---$/ {skip=1; next} /^---\[ SCRIPT BLOCK END \]---$/ {skip=0; next} !skip' \
-    | grep -a -v -E "(^--- FILTERED TERMINAL|^--------------------------------------------------|^\[Token Estimate\]|^\[Alert\]|^\[Warning\]|^Thinking|^Next prompt:|^\[Enter\] to|^\[Executing Script|^\[Execution Complete|^\[Session:|^\[Global\])" \
-    | cat -s \
-    | tail -n "$LINES"
+# No awk, no perl, no regex. 
+# Just grab the last lines and make all hidden characters safely visible.
+tail -n "$LINES" "$LOG_FILE" | cat -v
 
 if [[ $QUIET -eq 0 ]]; then echo -e "--------------------------------------------------\n"; fi
