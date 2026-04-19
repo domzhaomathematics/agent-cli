@@ -1,21 +1,17 @@
 #!/usr/bin/env bash
 
 NAME="$1"
-if [[ -z "$NAME" ]]; then 
-    echo "Usage: agent start <name>"
-    exit 1
-fi
+if [[ -z "$NAME" ]]; then echo "Usage: agent start <name>"; exit 1; fi
 
 S_DIR="$AGENT_DIR/sessions/$NAME"
 
 mkdir -p "$S_DIR/logs" "$S_DIR/scripts"
 > "$S_DIR/context.txt"
-> "$S_DIR/history.txt"
 > "$S_DIR/logs/terminal_raw.log"
 
 CURRENT_TTY=$(tty | sed 's|/|_|g')
 echo "$NAME:$$" > "$AGENT_DIR/sessions/.bindings/$CURRENT_TTY"
-echo "[Session: $NAME] ✨ Workspace created. Dropping into monitored shell..."
+echo "[Session: $NAME] Workspace created. Dropping into monitored shell..."
 
 export AGENT_SESSION_RESOLVED="1"
 export SESSION_NAME="$NAME"
@@ -27,7 +23,6 @@ else
     script -f -q "$S_DIR/logs/terminal_raw.log"
 fi
 
-# 🛑 CLEANUP: This runs the moment the subshell exits or is stopped!
 rm -f "$AGENT_DIR/sessions/.bindings/$CURRENT_TTY"
 rm -f "$S_DIR/logs/terminal_raw.log"
-echo "[Global] 🛑 Session ended. Logs cleared. Terminal unbound."
+echo "[Global] Session ended. Logs cleared. Terminal unbound."

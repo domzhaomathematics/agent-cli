@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+if [[ -z "$SESSION_DIR" ]]; then echo "[Error] Session not active."; exit 1; fi
+
+TARGETS=()
+EXCEPT=""
+PROMPT=""
+
+# Parse arguments manually to support dynamic lengths and "except" keyword
+i=1
+while [[ $i -le $# ]]; do
+    arg="${!i}"
+    if [[ "$arg" == "except" ]]; then
+        let i++
+        EXCEPT="${!i}"
+    elif [[ $i -eq $# ]]; then
+        PROMPT="$arg"
+    else
+        TARGETS+=("$arg")
+    fi
+    let i++
+done
+
+if [[ ${#TARGETS[@]} -eq 0 || -z "$PROMPT" ]]; then
+    echo "Usage: agent extract <targets> [except <exclusions>] \"<prompt>\""
+    exit 1
+fi
+
+TMP_READS="$AGENT_DIR/tmp_extract_reads.txt"
+> "$TMP_READS"
+
+for TARGET in "${TARGETS[@]}"; do
+    ABS_TARGET=$(realpath "$TARGET" 2>/dev/null || echo "$TARGET")
+    FIND_CMD=(find "$ABS_TARGET" -type f -not -path '*/.*')
+    if [[ -n "$EXCEPT" ]]; then
+        IFS=',' read -ra ADDR <<< "$EXCEPT"
+        for part in "${ADDR[@]}"; do FIND_CMD+=(-not -path "*/$part/*" -not -name "$part"); done
+    fi
+
+    process_tmp_file() {
+        local abs_f="$1"
+        local size_bytes=$(wc -c < "$abs_f" 2>/dev/null || echo 0)
+        if (( size_bytes > 1048576 )); then return; fi
+        if [[ -s "$abs_f" ]]; then
+            local enc=$(file -b --mime-encoding "$abs_f" 2>/dev/null)
+            if [[ "$enc" == "binary" ]]; then return; fi
+        fi
+        echo "---[ FILE: $abs_f ]---" >> "$TMP_READS"
+        cat "$abs_f" >> "$TMP_READS"
+        echo -e "\n---[ END: $abs_f ]---" >> "$TMP_READS"
+    }
+
+    if [[ -f "$ABS_TARGET" ]]; then process_tmp_file "$ABS_TARGET"
+    else while read -r file; do process_tmp_file "$file"; done < <("${FIND_CMD[@]}" 2>/dev/null); fi
+done
+
+TMP_LOGS="$AGENT_DIR/tmp_logs.txt"
+"$AGENT_DIR/tools/logs" 150 -q > "$TMP_LOGS"
+
+TOK_CTX=$(($(wc -m < "$SESSION_DIR/context.txt" 2>/dev/null || echo 0) / 3))
+TOK_LOG=$(($(wc -m < "$TMP_LOGS" 2>/dev/null || echo 0) / 3))
+TOK_EXT=$(($(wc -m < "$TMP_READS" 2>/dev/null || echo 0) / 3))
+TOK_TOT=$((TOK_CTX + TOK_LOG + TOK_EXT))
+
+echo "[Token Estimate] Total: ${TOK_TOT} | Context: ${TOK_CTX} | Logs: ${TOK_LOG} | Extra Reads: ${TOK_EXT}"
+
+if (( TOK_TOT > 200000 )); then
+    echo "[Alert] Context exceeds 200k tokens. High cost and severe degradation risk."
+    echo "Tip: Use 'agent context' to find large files, and 'agent unread <path>' to remove them."
+    read -p "Proceed? [y/N]: " proceed
+    if [[ ! "$proceed" =~ ^[Yy]$ ]]; then rm -f "$TMP_READS" "$TMP_LOGS"; exit 0; fi
+elif (( TOK_TOT > 100000 )); then
+    echo "[Warning] Context exceeds 100k tokens. Performance may degrade."
+fi
+
+echo "Thinking (Model: $AGENT_MODEL)..."
+
+PAYLOAD_FILE="$AGENT_DIR/payload.json"
+SYS_PROMPT="You are an extraction query tool. Look at the provided files and answer the user's query exactly. Be aggressively concise, no fluff, no greetings. Output raw facts, code signatures, or instructions only."
+
+jq -n --arg pmt "$PROMPT" --arg sys "$SYS_PROMPT" '{"contents":[{"parts":[{"text": ($sys + "\n\nQuery: " + $pmt)}]}]}' > "$PAYLOAD_FILE"
+
+if [[ -s "$SESSION_DIR/context.txt" ]]; then jq -Rs --argjson p "$(<"$PAYLOAD_FILE")" '. as $raw | $p | .contents[0].parts[0].text = "Session Context:\n" + $raw + "\n" + .contents[0].parts[0].text' < "$SESSION_DIR/context.txt" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
+if [[ -s "$TMP_LOGS" ]]; then jq -Rs --argjson p "$(<"$PAYLOAD_FILE")" '. as $raw | $p | .contents[0].parts[0].text = "Terminal Logs:\n" + $raw + "\n" + .contents[0].parts[0].text' < "$TMP_LOGS" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
+if [[ -s "$TMP_READS" ]]; then jq -Rs --argjson p "$(<"$PAYLOAD_FILE")" '. as $raw | $p | .contents[0].parts[0].text = "Target Extraction Files:\n" + $raw + "\n" + .contents[0].parts[0].text' < "$TMP_READS" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
+
+RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/${AGENT_MODEL}:generateContent?key=$GEMINI_API_KEY" \
+    -H "Content-Type: application/json" -d @"$PAYLOAD_FILE")
+
+rm -f "$PAYLOAD_FILE" "$TMP_READS" "$TMP_LOGS"
+
+RESULT=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty')
+if [[ -z "$RESULT" ]]; then echo "[API Error] $(echo "$RESPONSE" | jq -r '.error.message // "Unknown API Error"')"; exit 1; fi
+
+echo -e "\n$RESULT\n"

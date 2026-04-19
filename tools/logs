@@ -1,25 +1,23 @@
 #!/usr/bin/env bash
-if [[ -z "$SESSION_DIR" ]]; then echo "❌ Error: Session not active."; exit 1; fi
+if [[ -z "$SESSION_DIR" ]]; then echo "[Error] Session not active."; exit 1; fi
 
 LOG_FILE="$SESSION_DIR/logs/terminal_raw.log"
-if [[ ! -f "$LOG_FILE" ]]; then 
-    echo "No logs found yet."
-    exit 0
-fi
+if [[ ! -f "$LOG_FILE" ]]; then exit 0; fi
 
-LINES=${1:-50} 
+LINES=${1:-150}
+QUIET=0
+if [[ "$1" == "-q" || "$2" == "-q" ]]; then QUIET=1; fi
 
-echo -e "\n--- FILTERED TERMINAL LOGS (Last $LINES lines) ---"
+if [[ $QUIET -eq 0 ]]; then echo -e "\n--- FILTERED TERMINAL LOGS (Last $LINES lines) ---"; fi
 
-# 1. Perl strips the ANSI colors/Zsh paste codes
-# 2. col -b cleans up carriage returns
-# 3. grep -a -v removes the CLI's own UI banners so they don't echo infinitely!
 cat "$LOG_FILE" \
     | perl -pe 's/\x1b\[[\x30-\x3F]*[\x20-\x2F]*[\x40-\x7E]//g' \
     | perl -pe 's/\x1b\][^\x07\x1b]*[\x07\x1b]//g' \
     | perl -pe 's/\x1b[()][A-Z0-9]//g' \
     | col -b \
-    | grep -a -v -E "(FILTERED TERMINAL LOGS|--------------------------------------------------|==================== ANSWER ====================|🤖 Thinking|💬 Thinking)" \
+    | awk '/^---\[ SCRIPT BLOCK START \]---$/ {skip=1; next} /^---\[ SCRIPT BLOCK END \]---$/ {skip=0; next} !skip' \
+    | grep -a -v -E "(^--- FILTERED TERMINAL|^--------------------------------------------------|^\[Token Estimate\]|^\[Alert\]|^\[Warning\]|^Thinking|^Next prompt:|^\[Enter\] to|^\[Executing Script|^\[Execution Complete|^\[Session:|^\[Global\])" \
+    | cat -s \
     | tail -n "$LINES"
 
-echo -e "--------------------------------------------------\n"
+if [[ $QUIET -eq 0 ]]; then echo -e "--------------------------------------------------\n"; fi

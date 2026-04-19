@@ -1,20 +1,27 @@
 #!/usr/bin/env bash
-if [[ -z "$SESSION_DIR" ]]; then echo "❌ Error: No session active."; exit 1; fi
+if [[ -z "$SESSION_DIR" ]]; then echo "[Error] No session active."; exit 1; fi
 
 TARGET="."
 EXCEPT=""
 ONLY_PATHS=false
 
+ARGS=()
 while [[ "$#" -gt 0 ]]; do
-    case $1 in
-        --except) EXCEPT="$2"; shift ;;
-        --only-paths) ONLY_PATHS=true ;;
-        *) TARGET="$1" ;;
-    esac
-    shift
+    if [[ "$1" == "except" ]]; then
+        EXCEPT="$2"
+        shift 2
+    elif [[ "$1" == "--only-paths" ]]; then
+        ONLY_PATHS=true
+        shift
+    else
+        ARGS+=("$1")
+        shift
+    fi
 done
 
-ABS_TARGET=$(realpath "$TARGET")
+if [[ ${#ARGS[@]} -gt 0 ]]; then TARGET="${ARGS[0]}"; fi
+
+ABS_TARGET=$(realpath "$TARGET" 2>/dev/null || echo "$TARGET")
 OUT_FILE="$SESSION_DIR/context.txt"
 touch "$OUT_FILE"
 
@@ -23,40 +30,23 @@ process_file() {
     local rel_f="./${abs_f#$PWD/}"
     local is_update=false
     
-    # 1. Check if already loaded. 
-    # Use -F (Fixed String) to avoid regex issues, and -e so grep doesn't think "---" is a flag!
     if grep -q -F -e "---[ FILE: $abs_f |" "$OUT_FILE"; then
-        # Silently unread (remove) the old block from the context
         "$AGENT_DIR/tools/unread" "$abs_f" >/dev/null 2>&1
         is_update=true
     fi
 
-    # 2. Check File Size (Skip files > 1MB)
     local size_bytes=$(wc -c < "$abs_f" 2>/dev/null || echo 0)
-    if (( size_bytes > 1048576 )); then
-        echo "   ![Skipped >1MB] $rel_f"
-        return
-    fi
+    if (( size_bytes > 1048576 )); then echo "   [Skipped >1MB] $rel_f"; return; fi
 
-    # 3. Binary Filter (Blocks images, compiled code, zips, etc.)
     if [[ -s "$abs_f" ]]; then
         local enc=$(file -b --mime-encoding "$abs_f" 2>/dev/null)
-        if [[ "$enc" == "binary" ]]; then
-            # We silently return so your terminal doesn't get spammed with skipped images
-            return
-        fi
+        if [[ "$enc" == "binary" ]]; then return; fi
     fi
 
-    # 4. Add to Context
     if [[ "$ONLY_PATHS" == true ]]; then
         echo "---[ FILE: $abs_f | Tokens: 5 | Mode: PATH_ONLY ]---" >> "$OUT_FILE"
         echo "---[ END: $abs_f ]---" >> "$OUT_FILE"
-        
-        if [[ "$is_update" == true ]]; then
-            echo "   ↻ [Updated Path] $rel_f"
-        else
-            echo "   + [Path Only] $rel_f"
-        fi
+        if [[ "$is_update" == true ]]; then echo "   [Updated Path] $rel_f"; else echo "   [Path Only] $rel_f"; fi
     else
         local chars=$(wc -m < "$abs_f" 2>/dev/null || echo 0)
         local tk=$((chars / 3))
@@ -64,26 +54,15 @@ process_file() {
         cat "$abs_f" >> "$OUT_FILE"
         echo -e "\n---[ END: $abs_f ]---" >> "$OUT_FILE"
         
-        if [[ "$is_update" == true ]]; then
-            echo "   ↻ [Updated] $rel_f (~$tk tokens)"
-        else
-            echo "   + [Added] $rel_f (~$tk tokens)"
-        fi
+        if [[ "$is_update" == true ]]; then echo "   [Updated] $rel_f (~$tk tokens)"; else echo "   [Added] $rel_f (~$tk tokens)"; fi
     fi
 }
 
 FIND_CMD=(find "$ABS_TARGET" -type f -not -path '*/.*')
 if [[ -n "$EXCEPT" ]]; then
     IFS=',' read -ra ADDR <<< "$EXCEPT"
-    for part in "${ADDR[@]}"; do
-        FIND_CMD+=(-not -path "*/$part/*" -not -name "$part")
-    done
+    for part in "${ADDR[@]}"; do FIND_CMD+=(-not -path "*/$part/*" -not -name "$part"); done
 fi
 
-if [[ -f "$ABS_TARGET" ]]; then
-    process_file "$ABS_TARGET"
-else
-    while read -r file; do
-        process_file "$file"
-    done < <("${FIND_CMD[@]}" 2>/dev/null)
-fi
+if [[ -f "$ABS_TARGET" ]]; then process_file "$ABS_TARGET"
+else while read -r file; do process_file "$file"; done < <("${FIND_CMD[@]}" 2>/dev/null); fi

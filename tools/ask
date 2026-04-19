@@ -1,89 +1,89 @@
 #!/usr/bin/env bash
+if [[ -z "$SESSION_DIR" ]]; then echo "[Error] Session not active."; exit 1; fi
+
 PROMPT="$*"
-if [[ -z "$PROMPT" ]]; then echo -n "💬 Enter prompt: "; read -r PROMPT; fi
 
-TMP_CONTEXT="$AGENT_DIR/tmp_payload.txt"
-> "$TMP_CONTEXT"
+while true; do
+    if [[ -z "$PROMPT" ]]; then
+        echo -n "Next prompt: "
+        read -r PROMPT || exit 0
+    fi
+    if [[ -z "$PROMPT" ]]; then continue; fi
 
-# 0. Load Plan if exists
-PLAN_HEADER=""
-if [[ -f "$SESSION_DIR/plan.md" ]]; then
-  PLAN_HEADER="--- MISSION PLAN ---
-$(cat "$SESSION_DIR/plan.md")
-------------------
+    # Echo explicitly so the script logger captures the question for future context
+    echo "User: $PROMPT"
 
-"
-fi
+    TMP_LOGS="$AGENT_DIR/tmp_logs.txt"
+    "$AGENT_DIR/tools/logs" 150 -q > "$TMP_LOGS"
 
-# 1. Build Payload based on Session or Global mode
-if [[ -n "$SESSION_DIR" ]]; then
-    echo "WORKING_DIRECTORY: $(pwd)" > "$TMP_CONTEXT"
-    
-    if [[ -s "$SESSION_DIR/context.txt" ]]; then
-        echo -e "\n--- PROJECT CONTEXT ---" >> "$TMP_CONTEXT"
-        while read -r line || [[ -n "$line" ]]; do
-            if [[ "$line" == "---[ FILE: "* ]]; then
-                abs_path=$(echo "$line" | awk -F'FILE: | \\|' '{print $2}' | xargs)
-                meta=$(echo "$line" | awk -F'\\| ' '{print $2 " | " $3}')
-                rel_path="./${abs_path#$PWD/}"
-                echo "---[ FILE: $rel_path | $meta" >> "$TMP_CONTEXT"
-            elif [[ "$line" == "---[ END: "* ]]; then
-                abs_path=$(echo "$line" | awk -F'END: | ' '{print $2}' | xargs)
-                rel_path="./${abs_path#$PWD/}"
-                echo "---[ END: $rel_path ]---" >> "$TMP_CONTEXT"
-            else
-                echo "$line" >> "$TMP_CONTEXT"
-            fi
-        done < "$SESSION_DIR/context.txt"
+    TOK_CTX=$(($(wc -m < "$SESSION_DIR/context.txt" 2>/dev/null || echo 0) / 3))
+    TOK_LOG=$(($(wc -m < "$TMP_LOGS" 2>/dev/null || echo 0) / 3))
+    TOK_TOT=$((TOK_CTX + TOK_LOG))
+
+    echo "[Token Estimate] Total: ${TOK_TOT} | Context: ${TOK_CTX} | Logs: ${TOK_LOG}"
+
+    if (( TOK_TOT > 200000 )); then
+        echo "[Alert] Context exceeds 200k tokens. High cost and severe degradation risk."
+        echo "Tip: Use 'agent context' to find large files, and 'agent unread <path>' to remove them."
+        read -p "Proceed? [y/N]: " proceed
+        if [[ ! "$proceed" =~ ^[Yy]$ ]]; then rm -f "$TMP_LOGS"; PROMPT=""; continue; fi
+    elif (( TOK_TOT > 100000 )); then
+        echo "[Warning] Context exceeds 100k tokens. Performance may degrade."
     fi
 
-    [[ -s "$SESSION_DIR/history.txt" ]] && tail -n 30 "$SESSION_DIR/history.txt" >> "$TMP_CONTEXT"
+    echo "Thinking (Model: $AGENT_MODEL)..."
 
-    # --- TERMINAL LOG INJECTION (With Self-Awareness Filter) ---
-    if [[ -f "$SESSION_DIR/logs/terminal_raw.log" ]]; then
-        echo -e "\n--- RECENT TERMINAL OUTPUT ---" >> "$TMP_CONTEXT"
-        cat "$SESSION_DIR/logs/terminal_raw.log" \
-            | perl -pe 's/\x1b\[[\x30-\x3F]*[\x20-\x2F]*[\x40-\x7E]//g' \
-            | perl -pe 's/\x1b\][^\x07\x1b]*[\x07\x1b]//g' \
-            | perl -pe 's/\x1b[()][A-Z0-9]//g' \
-            | col -b \
-            | grep -a -v -E "(FILTERED TERMINAL LOGS|--------------------------------------------------|==================== ANSWER ====================|🤖 Thinking|💬 Thinking)" \
-            | tail -n 60 >> "$TMP_CONTEXT"
+    SYS_PROMPT="You are a precise, highly skilled coding assistant. You must provide concise, dense text explanations. Do not use conversational filler.
+If actions (creating files, executing commands) are required, output AT MOST ONE \`bash\` code block (using \`\`\`bash).
+Even if multiple files need creating or editing, combine them into this SINGLE script using \`cat << 'EOF'\`, \`sed\`, or other shell utilities. Provide exactly one bash block if code execution is needed."
+
+    PAYLOAD_FILE="$AGENT_DIR/payload.json"
+    jq -n --arg pmt "$PROMPT" --arg sys "$SYS_PROMPT" '{"contents":[{"parts":[{"text": ($sys + "\n\nUser Question:\n" + $pmt)}]}]}' > "$PAYLOAD_FILE"
+
+    if [[ -s "$SESSION_DIR/context.txt" ]]; then jq -Rs --argjson p "$(<"$PAYLOAD_FILE")" '. as $raw | $p | .contents[0].parts[0].text = "Project Context:\n" + $raw + "\n" + .contents[0].parts[0].text' < "$SESSION_DIR/context.txt" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
+    if [[ -s "$TMP_LOGS" ]]; then jq -Rs --argjson p "$(<"$PAYLOAD_FILE")" '. as $raw | $p | .contents[0].parts[0].text = "Terminal Logs:\n" + $raw + "\n" + .contents[0].parts[0].text' < "$TMP_LOGS" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
+    if [[ -f "$SESSION_DIR/plan.md" ]]; then jq -Rs --argjson p "$(<"$PAYLOAD_FILE")" '. as $raw | $p | .contents[0].parts[0].text = "Mission Plan:\n" + $raw + "\n" + .contents[0].parts[0].text' < "$SESSION_DIR/plan.md" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
+
+    RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/${AGENT_MODEL}:generateContent?key=$GEMINI_API_KEY" \
+        -H "Content-Type: application/json" -d @"$PAYLOAD_FILE")
+
+    rm -f "$PAYLOAD_FILE" "$TMP_LOGS"
+
+    RESULT=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty')
+    if [[ -z "$RESULT" ]]; then
+        echo "[API Error] $(echo "$RESPONSE" | jq -r '.error.message // "Unknown Error"')"
+        PROMPT=""
+        continue
     fi
-    
-    CHARS=$(wc -m < "$TMP_CONTEXT" 2>/dev/null || echo 0)
-    TOKENS=$((CHARS / 3))
-    MSG="[Session: $SESSION_NAME] 🤖 Thinking (Model: $AGENT_MODEL | ~$TOKENS tokens)..."
-else
-    MSG="[Global] 💬 Thinking (Model: $AGENT_MODEL | Pure Prompt)..."
-fi
 
-echo "$MSG"
+    # Parse out the pure text and pure bash script blocks safely
+    TEXT_PART=$(echo "$RESULT" | awk '/^```bash/ { in_code = 1; next } /^```/ { if (in_code) { in_code = 0; next } } { if (!in_code) print }')
+    SCRIPT_PART=$(echo "$RESULT" | awk '/^```bash/ { in_code = 1; next } /^```/ { if (in_code) { in_code = 0; next } } { if (in_code) print }')
 
-# 2. Package into JSON for Gemini
-PAYLOAD_FILE="$AGENT_DIR/payload.json"
-if [[ -s "$TMP_CONTEXT" ]]; then
-    jq -Rs --arg pmt "$PROMPT" --arg plan "$PLAN_HEADER" '{"contents":[{"parts":[{"text": ("Context & Paths:\n\n" + . + "\n\nUser Question:\n" + $plan + $pmt)}]}]}' < "$TMP_CONTEXT" > "$PAYLOAD_FILE"
-else
-    jq -n --arg pmt "$PROMPT" --arg plan "$PLAN_HEADER" '{"contents":[{"parts":[{"text": ($plan + $pmt)}]}]}' > "$PAYLOAD_FILE"
-fi
+    echo -e "\n$TEXT_PART\n"
 
-# 3. Call the API
-RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/${AGENT_MODEL}:generateContent?key=$GEMINI_API_KEY" \
-    -H "Content-Type: application/json" -d @"$PAYLOAD_FILE")
-
-rm -f "$PAYLOAD_FILE" "$TMP_CONTEXT"
-
-# 4. Parse Response Safely
-RESULT=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty')
-if [[ -z "$RESULT" ]]; then
-    ERROR_MSG=$(echo "$RESPONSE" | jq -r '.error.message // "Unknown API Error"')
-    RESULT="❌ API Error: $ERROR_MSG\n\nRaw Response: $RESPONSE"
-fi
-
-echo -e "\n==================== ANSWER ====================\n$RESULT\n================================================"
-
-# 5. Log History if in a Session
-if [[ -n "$SESSION_DIR" ]]; then
-    echo -e "\n> $PROMPT\n$RESULT" >> "$SESSION_DIR/history.txt"
-fi
+    if [[ -n "$SCRIPT_PART" && "$SCRIPT_PART" != $'\n' ]]; then
+        echo "---[ SCRIPT BLOCK START ]---"
+        echo "$SCRIPT_PART"
+        echo "---[ SCRIPT BLOCK END ]---"
+        echo ""
+        echo -n "[Enter] to run script | [Ctrl+C] to exit | Or type next prompt: "
+        read -r USER_INPUT || exit 0
+        if [[ -z "$USER_INPUT" ]]; then
+            TMP_SCRIPT="$AGENT_DIR/tmp_run.sh"
+            echo "$SCRIPT_PART" > "$TMP_SCRIPT"
+            chmod +x "$TMP_SCRIPT"
+            echo -e "\n[Executing Script...]"
+            bash "$TMP_SCRIPT"
+            rm -f "$TMP_SCRIPT"
+            echo -e "[Execution Complete]\n"
+            PROMPT=""
+        else
+            PROMPT="$USER_INPUT"
+        fi
+    else
+        echo -n "[Enter] to exit | Or type next prompt: "
+        read -r USER_INPUT || exit 0
+        if [[ -z "$USER_INPUT" ]]; then exit 0; else PROMPT="$USER_INPUT"; fi
+    fi
+done
