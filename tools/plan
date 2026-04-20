@@ -53,8 +53,8 @@ Output ONLY the Markdown content."
     PAYLOAD_FILE="$AGENT_DIR/payload.json"
     jq -n --arg pmt "$PROMPT" '{"contents":[{"parts":[{"text": $pmt}]}]}' > "$PAYLOAD_FILE"
     
-    if [[ -s "$SESSION_DIR/context.txt" ]]; then jq -Rs --argjson p "$(<"$PAYLOAD_FILE")" '. as $raw | $p | .contents[0].parts[0].text = "Project Context:\n" + $raw + "\n" + .contents[0].parts[0].text' < "$SESSION_DIR/context.txt" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
-    if [[ -s "$TMP_LOGS" ]]; then jq -Rs --argjson p "$(<"$PAYLOAD_FILE")" '. as $raw | $p | .contents[0].parts[0].text = "Terminal Logs:\n" + $raw + "\n" + .contents[0].parts[0].text' < "$TMP_LOGS" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
+    if [[ -s "$SESSION_DIR/context.txt" ]]; then jq --rawfile raw "$SESSION_DIR/context.txt" '.contents[0].parts[0].text = "Project Context:\n" + $raw + "\n" + .contents[0].parts[0].text' "$PAYLOAD_FILE" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
+    if [[ -s "$TMP_LOGS" ]]; then jq --rawfile raw "$TMP_LOGS" '.contents[0].parts[0].text = "Terminal Logs:\n" + $raw + "\n" + .contents[0].parts[0].text' "$PAYLOAD_FILE" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
     
     RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/${AGENT_MODEL}:generateContent?key=$GEMINI_API_KEY" \
       -H "Content-Type: application/json" -d @"$PAYLOAD_FILE")
