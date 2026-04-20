@@ -10,7 +10,8 @@ echo -e "\n--- 🧠 Brain & Context ---"
 echo "  read <path>           : Load file/dir into context (Defaults to current dir)"
 echo "                          Flags: --except dir1,file2 | --only-paths"
 echo "  unread <path>         : Surgically remove a file or directory from context"
-echo "  clear                 : Wipe all context for the current session"
+echo "  update                : Sync all loaded files with their latest disk states
+  clear                 : Wipe all context for the current session"
 echo "  context               : Dashboard (df -h) showing loaded files and token counts"
 
 echo -e "\n--- 💬 Interaction ---"

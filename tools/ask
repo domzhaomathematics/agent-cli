@@ -22,6 +22,7 @@ while true; do
 
     TMP_LOGS="$AGENT_DIR/tmp_logs.txt"
     "$AGENT_DIR/tools/logs" 150 -q > "$TMP_LOGS"
+    if [[ -x "$AGENT_DIR/tools/update" ]]; then "$AGENT_DIR/tools/update" -q; fi
 
     TOK_CTX=$(($(wc -m < "$SESSION_DIR/context.txt" 2>/dev/null || echo 0) / 3))
     TOK_LOG=$(($(wc -m < "$TMP_LOGS" 2>/dev/null || echo 0) / 3))

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+if [[ -z "$SESSION_DIR" ]]; then echo "❌ Error: Session not active."; exit 1; fi
+OUT_FILE="$SESSION_DIR/context.txt"
+if [[ ! -s "$OUT_FILE" ]]; then exit 0; fi
+
+TMP_OUT="$SESSION_DIR/context_tmp.txt"
+> "$TMP_OUT"
+
+UPDATED=0
+DELETED=0
+
+# Fast one-pass rebuild of the context file
+while IFS='|' read -r p1 p2 p3; do
+    FILE_PATH=$(echo "$p1" | sed 's/^---\[ FILE: //; s/ *$//')
+    MODE=$(echo "$p3" | sed 's/^ Mode: //; s/ \]---$//; s/ *$//')
+
+    if [[ -f "$FILE_PATH" ]]; then
+        SIZE_BYTES=$(wc -c < "$FILE_PATH" 2>/dev/null || echo 0)
+        # Skip if it suddenly grew over 1MB
+        if (( SIZE_BYTES > 1048576 )); then
+            ((DELETED++))
+            continue
+        fi
+
+        if [[ "$MODE" == "PATH_ONLY" ]]; then
+            echo "---[ FILE: $FILE_PATH | Tokens: 5 | Mode: PATH_ONLY ]---" >> "$TMP_OUT"
+            echo "---[ END: $FILE_PATH ]---" >> "$TMP_OUT"
+        else
+            CHARS=$(LC_ALL=C wc -m < "$FILE_PATH" 2>/dev/null || echo 0)
+            TK=$((CHARS / 3))
+            echo "---[ FILE: $FILE_PATH | Tokens: $TK | Mode: FULL ]---" >> "$TMP_OUT"
+            cat "$FILE_PATH" >> "$TMP_OUT"
+            echo -e "\n---[ END: $FILE_PATH ]---" >> "$TMP_OUT"
+        fi
+        ((UPDATED++))
+    else
+        # File was deleted from disk
+        ((DELETED++))
+    fi
+done < <(awk 'BEGIN {FS="|"} /^---\[ FILE: / { print $1 "|" $2 "|" $3 }' "$OUT_FILE")
+
+mv "$TMP_OUT" "$OUT_FILE"
+
+if [[ "$1" != "-q" ]]; then
+    echo "[Session: $SESSION_NAME] 🔄 Context synced ($UPDATED files updated, $DELETED removed)."
+fi
