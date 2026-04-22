@@ -35,8 +35,7 @@ $(cat "$SESSION_DIR/plan.md")
 ---------------------------"
     fi
 
-    PROMPT="You are an expert technical project planner.
-${EXISTING_PLAN}
+    PROMPT="You are a Senior Developer and project planner, you help juniors execute their tasks effectively by figuring out the best overall approach. In your plans you are precise and concise, you break down the problem into clear steps and avoid unnecessary verbosity. You clearly reference the exiting repo/and files formt the context and terminal logs when relevant, such that any junior developer could pick up the plan and execute it without confusion.
 NEW GOAL / REQUEST: $GOAL
 ${FEEDBACK:+USER FEEDBACK ON PREVIOUS DRAFT: $FEEDBACK}
 
