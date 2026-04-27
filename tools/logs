@@ -4,7 +4,7 @@ if [[ -z "$SESSION_DIR" ]]; then echo "[Error] Session not active."; exit 1; fi
 LOG_FILE="$SESSION_DIR/logs/terminal_raw.log"
 if [[ ! -f "$LOG_FILE" ]]; then exit 0; fi
 
-LINES=${1:-150}
+LINES=${1:-1500}
 QUIET=0
 if [[ "$1" == "-q" || "$2" == "-q" ]]; then QUIET=1; fi
 
