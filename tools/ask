@@ -10,15 +10,20 @@ PROMPT=""
 while true; do
     # Initial State or State B (No script proposed)
     if [[ -z "$PROMPT" ]]; then
-        echo -n "[Ctrl+C] to exit | ask agent: "
-        read -e -r PROMPT || exit 0
+        echo -e "\n💬 Ask Agent [Enter submits. Pasting multi-line text works safely]:"
+        read -e -r first_line || exit 0
+        PROMPT="$first_line"
+        
+        # 0.1s timer to catch any rapid-fire lines from a paste buffer
+        while read -t 1 -r extra_line; do
+            PROMPT+=$'\n'"$extra_line"
+        done
     fi
     
-    # If the user just hits Enter, loop back to the prompt
-    if [[ -z "$PROMPT" ]]; then continue; fi
+    # If the user just hits Enter with no text, loop back
+    if [[ -z "$(echo -e "$PROMPT" | tr -d '[:space:]')" ]]; then PROMPT=""; continue; fi
 
-    # Echo explicitly so the script logger captures the question for future context
-    echo "User: $PROMPT"
+    echo -e "\nUser: $PROMPT"
 
     TMP_LOGS="$AGENT_DIR/tmp_logs.txt"
     "$AGENT_DIR/tools/logs" > "$TMP_LOGS"
@@ -33,7 +38,7 @@ while true; do
     if (( TOK_TOT > 200000 )); then
         echo "[Alert] Context exceeds 200k tokens. High cost and severe degradation risk."
         echo "Tip: Use 'agent context' to find large files, and 'agent unread <path>' to remove them."
-        read -p "Proceed? [y/N]: " proceed
+        read -e -p "Proceed? [y/N]: " proceed
         if [[ ! "$proceed" =~ ^[Yy]$ ]]; then rm -f "$TMP_LOGS"; PROMPT=""; continue; fi
     elif (( TOK_TOT > 100000 )); then
         echo "[Warning] Context exceeds 100k tokens. Performance may degrade."
@@ -76,9 +81,14 @@ Even if multiple files need creating or editing, combine them into this SINGLE s
         echo "$SCRIPT_PART"
         echo "---[ SCRIPT BLOCK END ]---"
         echo ""
-        echo -n "[Enter] to run script | [Ctrl+C] to exit | ask agent: "
-        read -e -r USER_INPUT || exit 0
-        if [[ -z "$USER_INPUT" ]]; then
+        
+        # Flush any stray keystrokes from the terminal buffer just in case
+        while read -t 0; do read -r; done
+        
+        echo -ne "🚀 [Enter] to run script | [Ctrl+C] to exit | [f] to write feedback: "
+        read -e -r DECISION || exit 0
+        
+        if [[ -z "$DECISION" ]]; then
             TMP_SCRIPT="$AGENT_DIR/tmp_run.sh"
             echo "$SCRIPT_PART" > "$TMP_SCRIPT"
             chmod +x "$TMP_SCRIPT"
@@ -87,12 +97,19 @@ Even if multiple files need creating or editing, combine them into this SINGLE s
             rm -f "$TMP_SCRIPT"
             echo -e "[Execution Complete]\n"
             PROMPT=""
+        elif [[ "$DECISION" == "f" || "$DECISION" == "F" ]]; then
+            echo -e "\n📝 Enter Feedback:"
+            read -e -r first_line || exit 0
+            PROMPT="$first_line"
+            while read -t 1 -r extra_line; do
+                PROMPT+=$'\n'"$extra_line"
+            done
         else
-            PROMPT="$USER_INPUT"
+            # If they just typed a quick sentence directly instead of pressing 'f'
+            PROMPT="$DECISION"
         fi
     else
         # State B: No script proposed
-        # We set PROMPT="" so the loop restarts and cleanly shows the default prompt
         PROMPT=""
     fi
 done

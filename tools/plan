@@ -3,7 +3,14 @@ if [[ -z "$SESSION_DIR" ]]; then echo "[Error] Session not active."; exit 1; fi
 export AGENT_MODEL="gemini-3.1-pro-preview"
 
 GOAL="$*"
-if [[ -z "$GOAL" ]]; then echo -n "What is your goal? "; read -r GOAL; fi
+if [[ -z "$GOAL" ]]; then 
+    echo -e "\n🎯 What is your goal? [Enter submits. Pasting multi-line text works safely]:"
+    read -e -r first_line || exit 0
+    GOAL="$first_line"
+    while read -t 1 -r extra_line; do
+        GOAL+=$'\n'"$extra_line"
+    done
+fi
 
 CURRENT_PROPOSAL=""
 FEEDBACK=""
@@ -20,7 +27,7 @@ while true; do
     echo "[Token Estimate] Total: ${TOK_TOT} | Context: ${TOK_CTX} | Logs: ${TOK_LOG}"
 
     if (( TOK_TOT > 200000 )); then
-        read -p "[Alert] Context > 200k tokens. Proceed? [y/N]: " proceed
+        read -e -p "[Alert] Context > 200k tokens. Proceed? [y/N]: " proceed
         if [[ ! "$proceed" =~ ^[Yy]$ ]]; then rm -f "$TMP_LOGS"; exit 0; fi
     elif (( TOK_TOT > 100000 )); then
         echo "[Warning] Context exceeds 100k tokens."
@@ -69,12 +76,24 @@ Output ONLY the Markdown content."
     echo "$CURRENT_PROPOSAL"
     echo -e "\n======================================================="
     
-    echo -ne "\n[y] Accept | [n] Cancel | or type feedback to refine: "
-    read -r USER_INPUT
+    # Flush any stray keystrokes from the terminal buffer just in case
+    while read -t 0; do read -r; done
     
-    case "$USER_INPUT" in
-        y|Y|yes|Yes) echo "$CURRENT_PROPOSAL" > "$SESSION_DIR/plan.md"; echo -e "\n[Success] Plan saved to plan.md!"; break ;;
-        n|N|no|No) echo -e "\nPlanning cancelled."; break ;;
-        *) FEEDBACK="$USER_INPUT" ;;
-    esac
+    echo -ne "🚀 [Enter] to Accept | [Ctrl+C] to Cancel | [f] to refine/feedback: "
+    read -e -r DECISION || exit 0
+    
+    if [[ -z "$DECISION" ]]; then
+        echo "$CURRENT_PROPOSAL" > "$SESSION_DIR/plan.md"
+        echo -e "\n[Success] Plan saved to plan.md!"
+        break
+    elif [[ "$DECISION" == "f" || "$DECISION" == "F" ]]; then
+        echo -e "\n📝 Enter Feedback:"
+        read -e -r first_line || exit 0
+        FEEDBACK="$first_line"
+        while read -t 1 -r extra_line; do
+            FEEDBACK+=$'\n'"$extra_line"
+        done
+    else
+        FEEDBACK="$DECISION"
+    fi
 done
