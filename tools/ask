@@ -11,7 +11,7 @@ while true; do
     # Initial State or State B (No script proposed)
     if [[ -z "$PROMPT" ]]; then
         echo -n "[Ctrl+C] to exit | ask agent: "
-        read -r PROMPT || exit 0
+        read -e -r PROMPT || exit 0
     fi
     
     # If the user just hits Enter, loop back to the prompt
@@ -77,7 +77,7 @@ Even if multiple files need creating or editing, combine them into this SINGLE s
         echo "---[ SCRIPT BLOCK END ]---"
         echo ""
         echo -n "[Enter] to run script | [Ctrl+C] to exit | ask agent: "
-        read -r USER_INPUT || exit 0
+        read -e -r USER_INPUT || exit 0
         if [[ -z "$USER_INPUT" ]]; then
             TMP_SCRIPT="$AGENT_DIR/tmp_run.sh"
             echo "$SCRIPT_PART" > "$TMP_SCRIPT"
