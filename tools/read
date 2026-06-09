@@ -30,6 +30,9 @@ process_file() {
     local rel_f="./${abs_f#$PWD/}"
     local is_update=false
     
+    # FIX: Prevent the agent from reading its own session data into context (infinite loops)
+    if [[ "$abs_f" == "$AGENT_DIR/sessions/"* ]]; then return; fi
+    
     if grep -q -F -e "---[ FILE: $abs_f |" "$OUT_FILE"; then
         "$AGENT_DIR/tools/unread" "$abs_f" >/dev/null 2>&1
         is_update=true
