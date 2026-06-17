@@ -24,6 +24,85 @@ export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$RC_FILE"
     echo "   ✔ PATH updated in $(basename "$RC_FILE")"
 fi
 
+# --- AUTOMATIC VS CODE KEYBINDING CONFIGURATION ---
+echo "   ⌨️  Scanning for local VS Code installations to configure hotkey..."
+KB_PATHS=(
+    "$HOME/Library/Application Support/Code/User/keybindings.json"
+    "$HOME/Library/Application Support/Code - Insiders/User/keybindings.json"
+    "$HOME/.config/Code/User/keybindings.json"
+    "$HOME/.config/Code - Insiders/User/keybindings.json"
+)
+
+# Note the escaped \n so it is parsed as a newline by VS Code terminal but is valid JSON string during parse
+NEW_BINDING_JSON='{"key": "cmd+shift+enter", "command": "workbench.action.terminal.sendSequence", "args": {"text": "agent_vscode fill\n"}, "when": "editorTextFocus"}'
+
+for kb_path in "${KB_PATHS[@]}"; do
+    kb_dir=$(dirname "$kb_path")
+    if [[ -d "$kb_dir" ]]; then
+        echo "      ✔ Found VS Code configuration directory: $kb_dir"
+        
+        # Robust in-place edit using Perl (handles comments, trailing commas, and formatting safely)
+        perl -MJSON::PP -e '
+            my ($path, $new_bind_str) = @ARGV;
+            my $new_binding = decode_json($new_bind_str);
+            
+            my $json_text = "[]";
+            if (-f $path && -s $path) {
+                open my $fh, "<", $path or die "Could not open $path: $!";
+                $json_text = do { local $/; <$fh> };
+                close $fh;
+            }
+            
+            # 1. Strip C/C++ style comments safely
+            $json_text =~ s/\/\/.*$//gm;
+            $json_text =~ s/\/\*.*?\*\///gs;
+            $json_text =~ s/^\s+//;
+            $json_text =~ s/\s+$//;
+            
+            if ($json_text eq "") {
+                $json_text = "[]";
+            }
+            
+            my $data;
+            eval {
+                $data = decode_json($json_text);
+            };
+            if ($@) {
+                # If existing is completely corrupted, fall back safely to empty array
+                warn "      ⚠️  existing keybindings.json malformed ($@). Initializing safely.
+";
+                $data = [];
+            }
+            
+            if (ref($data) eq "ARRAY") {
+                my $exists = 0;
+                for my $item (@$data) {
+                    if ($item->{command} && $item->{command} eq "workbench.action.terminal.sendSequence" && $item->{args} && $item->{args}->{text} =~ /agent_vscode fill/) {
+                        $exists = 1;
+                        last;
+                    }
+                }
+                
+                if (!$exists) {
+                    push @$data, $new_binding;
+                    my $coder = JSON::PP->new->pretty->canonical;
+                    open my $fh, ">", $path or die "Could not write to $path: $!";
+                    print $fh $coder->encode($data);
+                    close $fh;
+                    print "      ✔ Keybinding successfully added to $path!
+";
+                } else {
+                    print "      ✔ Hotkey '\''cmd+shift+enter'\'' already configured in $path.
+";
+                }
+            } else {
+                warn "      ⚠️  keybindings.json root is not a JSON array. Skipping.
+";
+            }
+        ' "$kb_path" "$NEW_BINDING_JSON"
+    fi
+done
+
 if [[ "$RC_FILE" == *".zshrc" ]]; then
     # Clean previous blocks safely
     if grep -q "command_not_found_handler" "$RC_FILE"; then
@@ -36,11 +115,9 @@ if [[ "$RC_FILE" == *".zshrc" ]]; then
 
 # --- AGENT VSCODE COMMAND ROUTER INTEGRATION ---
 if [[ "$TERM_PROGRAM" == "vscode" ]]; then
-    # Bridge subshell isolation by staging suggestions to the parent shell
     _agent_vscode_precmd() {
         local last_status=$?
 
-        # Bridge subshell isolation by staging suggestions to the parent shell
         local tmp_file="$HOME/.agent_vscode/suggested_command.tmp"
         if [[ -f "$tmp_file" ]]; then
             local suggestion
@@ -52,7 +129,6 @@ if [[ "$TERM_PROGRAM" == "vscode" ]]; then
             fi
         fi
 
-        # Route natural-language command failures to agent_vscode
         if [[ "$last_status" -ne 0 ]]; then
             local last_cmd
             last_cmd=$(fc -ln -1 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
@@ -83,11 +159,9 @@ $response
         fi
     }
 
-    # Register precmd hook to parent shell safely
     autoload -Uz add-zsh-hook
     add-zsh-hook precmd _agent_vscode_precmd
 
-    # Pre-empt parse errors by intercepting key reserved keywords/prompts before Zsh parsing runs
     _agent_vscode_accept_line() {
         local buf="${BUFFER#"${BUFFER%%[![:space:]]*}"}"
         buf="${buf%"${buf##*[![:space:]]}"}"
@@ -100,25 +174,19 @@ $response
             local is_suspect=0
             local suspect_words="what who where why how which is are can could should would do does did tell say ask show list please hello help ok hey hi terminal explain debug find it's its there's theres can you could you should we do you did you check analyze test write edit run awesome perfect cool excellent great"
             
-            # Check if first word is a command/alias/builtin
             local cmd_type=""
             if [[ -n "$first_word" ]]; then
                 cmd_type=$(whence -w "$first_word" 2>/dev/null | awk '{print $2}')
             fi
 
-            # We consider it suspect if:
-            # 1. The first word is in our suspect words list, AND it's not a valid local command
             if [[ " $suspect_words " =~ " $first_word_lower " ]]; then
                 if [[ "$first_word_lower" == "do" || -z "$cmd_type" || "$cmd_type" == "none" ]]; then
                     is_suspect=1
                 fi
             fi
 
-            # 2. Or, if the first word is NOT a valid local command, and the buffer contains "?" or quotes/globs
             if [[ "$is_suspect" -eq 0 && ("$cmd_type" == "none" || -z "$cmd_type") ]]; then
-                # Ensure it's not a path or environment variable assignment
                 if [[ ! "$first_word" =~ ^[\./~] && ! "$first_word" == *=* ]]; then
-                    # If it has a question mark or quotes
                     if [[ "$buf" == *[\?\'\"]* ]]; then
                         is_suspect=1
                     fi
@@ -126,7 +194,6 @@ $response
             fi
 
             if [[ "$is_suspect" -eq 1 ]]; then
-                # Save query to history so up-arrow retrieve works
                 print -s "$buf"
                 BUFFER=""
                 echo -ne "
@@ -164,7 +231,6 @@ $response
                 echo "ℹ️  No active agent_vscode session. Using general LLM suggestion..." >&2
             fi
 
-            # Contact isolated VS Code agent for command suggestion
             local suggestion
             suggestion=$(agent_vscode terminal "$@")
 
@@ -183,7 +249,6 @@ $response
                 return 0
             fi
 
-            # If agent suggests nothing or behaves standardly
             echo "zsh: command not found: $1" >&2
             return 127
         else
