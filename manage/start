@@ -7,6 +7,93 @@ mkdir -p "$S_DIR/logs" "$S_DIR/scripts"
 > "$S_DIR/context.txt"
 > "$S_DIR/logs/terminal_raw.log"
 
+choose_option() {
+    local options=("$@")
+    local selected=0
+    local num_opts=${#options[@]}
+    
+    echo -ne "[?25l"
+    trap 'echo -ne "[?25h"; exit 1' SIGINT
+    
+    while true; do
+        for i in "${!options[@]}"; do
+            if [[ $i -eq $selected ]]; then 
+                echo -e "[32m ❯ ${options[$i]}[0m[K"
+            else 
+                echo -e "   ${options[$i]}[K"
+            fi
+        done
+        
+        read -rsn1 key
+        if [[ $key == $'' ]]; then
+            read -rsn2 key2
+            if [[ $key2 == '[A' ]]; then
+                ((selected--))
+                if (( selected < 0 )); then selected=$((num_opts - 1)); fi
+            elif [[ $key2 == '[B' ]]; then
+                ((selected++))
+                if (( selected >= num_opts )); then selected=0; fi
+            fi
+        elif [[ -z "$key" || $key == $'
+' ]]; then
+            break
+        fi
+        
+        echo -ne "[${num_opts}A"
+    done
+    
+    echo -ne "[?25h"
+    trap - SIGINT
+    return $selected
+}
+
+KEYS_FILE="$AGENT_VSCODE_DIR/keys.conf"
+touch "$KEYS_FILE"
+
+declare -a K_NAMES=()
+declare -a K_VALS=()
+while IFS='=' read -r k_name k_val || [[ -n "$k_name" ]]; do
+    if [[ -n "$k_name" && -n "$k_val" ]]; then
+        K_NAMES+=("${k_name/$'
+'/}")
+        K_VALS+=("${k_val/$'
+'/}")
+    fi
+done < "$KEYS_FILE"
+
+if [[ ${#K_NAMES[@]} -eq 0 ]]; then
+    echo -e "
+🔑 No API keys found. Let's add one."
+    read -e -p "Enter Key Name (e.g., Personal, Work): " SELECTED_KEY_NAME
+    echo -n "Enter Gemini API Key: "
+    read -ers SELECTED_KEY_VAL
+    echo " (${#SELECTED_KEY_VAL} chars)"
+    echo "$SELECTED_KEY_NAME=$SELECTED_KEY_VAL" >> "$KEYS_FILE"
+else
+    echo -e "
+🔑 Select an API Key for this session:"
+    MENU_OPTS=("${K_NAMES[@]}" "➕ Add New Key")
+    choose_option "${MENU_OPTS[@]}"
+    CHOICE=$?
+    
+    if (( CHOICE == ${#K_NAMES[@]} )); then
+        read -e -p "Enter Key Name (e.g., Personal, Work): " SELECTED_KEY_NAME
+        echo -n "Enter Gemini API Key: "
+        read -ers SELECTED_KEY_VAL
+        echo " (${#SELECTED_KEY_VAL} chars)"
+        echo "$SELECTED_KEY_NAME=$SELECTED_KEY_VAL" >> "$KEYS_FILE"
+    else
+        SELECTED_KEY_NAME="${K_NAMES[$CHOICE]}"
+        SELECTED_KEY_VAL="${K_VALS[$CHOICE]}"
+    fi
+fi
+
+echo "export GEMINI_API_KEY=\"$SELECTED_KEY_VAL\"" > "$S_DIR/api.env"
+echo "export GEMINI_API_KEY_NAME=\"$SELECTED_KEY_NAME\"" >> "$S_DIR/api.env"
+source "$S_DIR/api.env"
+echo -e "
+[Session: $NAME] 🔑 Using API Key: $SELECTED_KEY_NAME"
+
 CURRENT_TTY=$(tty | sed 's|/|_|g')
 echo "$NAME:$$" > "$AGENT_VSCODE_DIR/sessions/.bindings/$CURRENT_TTY"
 echo "[Session: $NAME] Workspace created. Dropping into monitored shell..."

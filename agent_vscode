@@ -22,6 +22,11 @@ if [[ -z "$AGENT_VSCODE_SESSION_RESOLVED" ]]; then
     export AGENT_VSCODE_SESSION_RESOLVED="1"
 fi
 
+# Load Session API Key explicitly for tools that are run outside the subshell process context
+if [[ -n "$AGENT_VSCODE_SESSION_DIR" && -f "$AGENT_VSCODE_SESSION_DIR/api.env" ]]; then
+    source "$AGENT_VSCODE_SESSION_DIR/api.env"
+fi
+
 # Handle Model Tiers (Defaults to gemini-3.5-flash)
 export AGENT_VSCODE_MODEL="gemini-3.5-flash"
 NEW_ARGS=()

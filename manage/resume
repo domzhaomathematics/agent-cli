@@ -12,6 +12,11 @@ export AGENT_VSCODE_SESSION_RESOLVED="1"
 export AGENT_VSCODE_SESSION_NAME="$NAME"
 export AGENT_VSCODE_SESSION_DIR="$S_DIR"
 
+if [[ -f "$S_DIR/api.env" ]]; then
+    source "$S_DIR/api.env"
+    echo "[Session: $NAME] 🔑 Using API Key: $GEMINI_API_KEY_NAME"
+fi
+
 if [[ "$(uname)" == "Darwin" ]]; then
     script -a -F -q "$S_DIR/logs/terminal_raw.log"
 else

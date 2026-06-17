@@ -11,13 +11,18 @@ if [[ "$1" == "-q" || "$2" == "-q" ]]; then QUIET=1; fi
 if [[ $QUIET -eq 0 ]]; then echo -e "
 --- RAW TERMINAL LOGS (Last $LINES lines) ---"; fi
 
+# Clean the terminal log:
+# 1. Strip CSI (ANSI colors, cursor movements, bracketed paste)
+# 2. Strip OSC (Terminal window titles)
+# 3. Resolve backspaces dynamically (simulating real typing)
+# 4. Strip carriage returns and bells
 tail -n "$LINES" "$LOG_FILE" | perl -pe '
-    s/[[0-9;?]*[a-zA-Z]//g;
-    s/].*?(?:|)//g;
-    1 while s/[//g;
-    s+//g;
-//g;s/
-    s///g;
+    s/\[[0-9;?]*[a-zA-Z]//g;
+    s/\].*?(?:|\)//g;
+    1 while s/[^]//g;
+    s/+//g;
+    s///g;
+    s///g;
 '
 
 if [[ $QUIET -eq 0 ]]; then echo -e "--------------------------------------------------

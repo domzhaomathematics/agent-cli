@@ -98,6 +98,11 @@ if [[ -n "$AGENT_VSCODE_SESSION_DIR" ]]; then
 " + $raw + "
 " + .contents[0].parts[0].text' "$PAYLOAD_FILE" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"
     fi
+    if [[ -f "$AGENT_VSCODE_SESSION_DIR/plan.md" ]]; then 
+        jq --rawfile raw "$AGENT_VSCODE_SESSION_DIR/plan.md" '.contents[0].parts[0].text = "Mission Plan:
+" + $raw + "
+" + .contents[0].parts[0].text' "$PAYLOAD_FILE" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"
+    fi
 fi
 
 RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/${AGENT_VSCODE_MODEL}:generateContent?key=$GEMINI_API_KEY" \

@@ -1,27 +1,22 @@
 #!/usr/bin/env bash
 SRC_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]:-$0}")")"
-INSTALL_DIR="$HOME/.agent_vscode"
 BIN_DIR="$HOME/.local/bin"
 RC_FILE="$HOME/.bashrc"
 if [[ "$(basename "$SHELL")" == "zsh" ]]; then RC_FILE="$HOME/.zshrc"; fi
 
 echo -e "
-⚙️  Deploying isolated agent_vscode package to $INSTALL_DIR...
+⚙️  Setting up agent_vscode in-place at $SRC_DIR...
 "
 
-mkdir -p "$INSTALL_DIR/tools" "$INSTALL_DIR/manage" "$INSTALL_DIR/sessions/.bindings"
+mkdir -p "$SRC_DIR/tools" "$SRC_DIR/manage" "$SRC_DIR/sessions/.bindings"
 
-cp "$SRC_DIR/agent_vscode" "$INSTALL_DIR/agent_vscode"
-cp -r "$SRC_DIR/tools/"* "$INSTALL_DIR/tools/" 2>/dev/null
-cp -r "$SRC_DIR/manage/"* "$INSTALL_DIR/manage/" 2>/dev/null
-
-chmod +x "$INSTALL_DIR/agent_vscode"
-chmod +x "$INSTALL_DIR"/tools/*
-chmod +x "$INSTALL_DIR"/manage/*
+chmod +x "$SRC_DIR/agent_vscode" "$SRC_DIR/setup" 2>/dev/null
+chmod +x "$SRC_DIR"/tools/* 2>/dev/null
+chmod +x "$SRC_DIR"/manage/* 2>/dev/null
 
 mkdir -p "$BIN_DIR"
-ln -sf "$INSTALL_DIR/agent_vscode" "$BIN_DIR/agent_vscode"
-echo "   ✔ Global decoupled symlink established ($BIN_DIR/agent_vscode -> $INSTALL_DIR/agent_vscode)"
+ln -sf "$SRC_DIR/agent_vscode" "$BIN_DIR/agent_vscode"
+echo "   ✔ Global symlink established ($BIN_DIR/agent_vscode -> $SRC_DIR/agent_vscode)"
 
 if ! grep -q "$BIN_DIR" "$RC_FILE" 2>/dev/null; then
     echo -e "
