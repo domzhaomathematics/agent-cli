@@ -8,10 +8,8 @@ if [[ "$(basename "$SHELL")" == "zsh" ]]; then RC_FILE="$HOME/.zshrc"; fi
 echo -e "
 ⚙️  Deploying isolated agent_vscode package to $INSTALL_DIR..."
 
-# Create clean hierarchy
 mkdir -p "$INSTALL_DIR/tools" "$INSTALL_DIR/manage" "$INSTALL_DIR/sessions/.bindings"
 
-# Copy package structures cleanly
 cp "$SRC_DIR/agent_vscode" "$INSTALL_DIR/agent_vscode"
 cp -r "$SRC_DIR/tools/"* "$INSTALL_DIR/tools/" 2>/dev/null
 cp -r "$SRC_DIR/manage/"* "$INSTALL_DIR/manage/" 2>/dev/null
@@ -20,31 +18,45 @@ chmod +x "$INSTALL_DIR/agent_vscode"
 chmod +x "$INSTALL_DIR"/tools/*
 chmod +x "$INSTALL_DIR"/manage/*
 
-# Bind Symlink
 mkdir -p "$BIN_DIR"
 ln -sf "$INSTALL_DIR/agent_vscode" "$BIN_DIR/agent_vscode"
 echo "   ✔ Global decoupled symlink established ($BIN_DIR/agent_vscode -> $INSTALL_DIR/agent_vscode)"
 
-# Secure path inclusion
 if ! grep -q "$BIN_DIR" "$RC_FILE" 2>/dev/null; then
     echo -e "
 export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$RC_FILE"
     echo "   ✔ PATH updated in $(basename "$RC_FILE")"
 fi
 
-# Inject Terminal Command Router Integration safely
 if [[ "$RC_FILE" == *".zshrc" ]]; then
     # Clean previous blocks safely
     if grep -q "command_not_found_handler" "$RC_FILE"; then
         cp "$RC_FILE" "${RC_FILE}.bak"
         perl -0777 -pe 's/# --- AGENT VSCODE COMMAND ROUTER INTEGRATION ---.*?# --- END AGENT VSCODE INTEGRATION ---//gs' "${RC_FILE}.bak" > "$RC_FILE"
-        perl -i -ne 'print unless /command_not_found_handler/ || /agent suggest/ || /agent terminal/ || /agent_vscode terminal/' "$RC_FILE"
+        perl -i -ne 'print unless /command_not_found_handler/ || /agent suggest/ || /agent terminal/ || /agent_vscode terminal/ || /_agent_vscode_precmd/' "$RC_FILE"
     fi
 
     cat << 'OUT_EOF' >> "$RC_FILE"
 
 # --- AGENT VSCODE COMMAND ROUTER INTEGRATION ---
 if [[ "$TERM_PROGRAM" == "vscode" ]]; then
+    # Bridge subshell isolation by staging suggestions to the parent shell
+    _agent_vscode_precmd() {
+        local tmp_file="$HOME/.agent_vscode/suggested_command.tmp"
+        if [[ -f "$tmp_file" ]]; then
+            local suggestion
+            suggestion=$(cat "$tmp_file")
+            rm -f "$tmp_file"
+            if [[ -n "$suggestion" ]]; then
+                print -z "$suggestion"
+            fi
+        fi
+    }
+
+    # Register precmd hook to parent shell safely
+    autoload -Uz add-zsh-hook
+    add-zsh-hook precmd _agent_vscode_precmd
+
     command_not_found_handler() {
         if command -v agent_vscode &>/dev/null; then
             if [[ -z "$AGENT_VSCODE_SESSION_NAME" ]]; then
@@ -61,9 +73,9 @@ if [[ "$TERM_PROGRAM" == "vscode" ]]; then
                 return 127
             fi
 
-            # Print suggested command and stage it in the terminal input buffer
-            echo "💡 Suggested Command: $suggestion"
-            print -z "$suggestion"
+            # Stage command directly without console pollution
+            mkdir -p "$HOME/.agent_vscode"
+            echo -n "$suggestion" > "$HOME/.agent_vscode/suggested_command.tmp"
             return 0
         else
             echo "zsh: command not found: $1" >&2
@@ -78,11 +90,3 @@ fi
 
 echo -e "
 ✅ agent_vscode deployment complete!"
-echo -e "-------------------------------------------------------"
-echo -e " 🚀 DEVELOPER WORKFLOW TIPS"
-echo -e "-------------------------------------------------------"
-echo -e " - Write & edit your code safely in: $SRC_DIR"
-echo -e " - Execute 'bash setup' inside your repository to deploy changes."
-echo -e " - Run 'agent_vscode help' to test."
-echo -e "-------------------------------------------------------
-"
