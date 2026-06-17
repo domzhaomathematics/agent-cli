@@ -21,8 +21,15 @@ fi
 echo "🔍 [Agent Fill] Target file identified: $ACTIVE_FILE"
 
 # Match lines starting with optional spaces/tabs then ##
-INDICATORS=$(perl -ne 'if (/^([         ]*)(##\s*(.*))$/) { printf "   - Line %d: \"%s\"
-", $., $2 }' "$ACTIVE_FILE")
+INDICATORS=$(python3 -c '
+import sys, re
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    for i, line in enumerate(f, 1):
+        m = re.match(r"^([ 	]*)(##\s*(.*))$", line)
+        if m:
+            print(f"   - Line {i}: \"{m.group(2).strip()}\"")
+' "$ACTIVE_FILE" 2>/dev/null)
+
 if [[ -z "$INDICATORS" ]]; then
     echo "ℹ️  No indicators (starting with ##) found in the active file."
     exit 0
@@ -42,17 +49,17 @@ fi
 
 echo "🧠 Consulting Gemini (Model: $AGENT_VSCODE_MODEL)... [Thinking...]"
 
-SYS_PROMPT="You are a precise coding assistant focused on interpolating/filling missing code blocks marked by comments starting with '##'.
-Your task is to analyze the entire file provided and find all comment lines starting with optional whitespace followed by '##' and some instructions (the indicators).
+SYS_PROMPT="You are a precise coding assistant focused on interpolating/filling missing code blocks marked by comments starting with '\''##'\''.
+Your task is to analyze the entire file provided and find all comment lines starting with optional whitespace followed by '\''##'\'' and some instructions (the indicators).
 
 For each indicator, generate the appropriate code implementation.
 You must return a JSON object where:
-- Key: The exact literal indicator line starting from '##' to the end of the line (excluding any leading spaces/tabs).
+- Key: The exact literal indicator line starting from '\''##'\'' to the end of the line (excluding any leading spaces/tabs).
 - Value: The raw, unindented code block that should replace that indicator line.
 
 Strict Rules:
 1. Output ONLY a valid JSON object. Do not include markdown code block formatting (like \`\`\`json). Just start with { and end with }.
-2. Do not indent the code inside the JSON value; the runner script will automatically detect the comment's indentation and apply it to every line of your generated code.
+2. Do not indent the code inside the JSON value; the runner script will automatically detect the comment'\''s indentation and apply it to every line of your generated code.
 3. Ensure your generated code is correct and complete for each placeholder."
 
 PROMPT="Target File Path: $ACTIVE_FILE
@@ -87,79 +94,62 @@ fi
 TMP_JSON="$AGENT_VSCODE_DIR/tmp_fill_$$.json"
 echo "$RESULT" > "$TMP_JSON"
 
-echo "⚡ Interpolating changes with native Perl..."
+echo "⚡ Interpolating changes with python3..."
 
-perl -e '
-use strict;
-use warnings;
-use JSON::PP;
+python3 -c '
+import sys
+import json
+import re
 
-my ($json_file, $file_to_modify) = @ARGV;
+json_file = sys.argv[1]
+file_to_modify = sys.argv[2]
 
-open my $fh_json, "<", $json_file or die "Can'\''t open $json_file: $!";
-my $json_text = do { local $/; <$fh_json> };
-close $fh_json;
+try:
+    with open(json_file, "r", encoding="utf-8") as f:
+        content = f.read().strip()
+        if content.startswith("```json"):
+            content = content[7:]
+        elif content.startswith("```"):
+            content = content[3:]
+        if content.endswith("```"):
+            content = content[:-3]
+        content = content.strip()
+        mappings = json.loads(content)
+except Exception as e:
+    print(f"❌ Failed to parse JSON response from LLM: {e}")
+    sys.exit(1)
 
-$json_text =~ s/^```(?:json)?//i;
-$json_text =~ s/```$//;
-$json_text =~ s/^\s+//;
-$json_text =~ s/\s+$//;
+with open(file_to_modify, "r", encoding="utf-8") as f:
+    lines = f.readlines()
 
-my $mappings;
-eval {
-    $mappings = decode_json($json_text);
-};
-if ($@) {
-    die "Failed to parse JSON response from LLM: $@
-Raw response was:
-$json_text
-";
-}
+output_lines = []
+interpolations = 0
 
-open my $fh_in, "<", $file_to_modify or die "Can'\''t open $file_to_modify: $!";
-my @lines = <$fh_in>;
-close $fh_in;
+clean_mappings = {k.strip(): v for k, v in mappings.items()}
 
-my @output_lines;
-my $interpolations = 0;
-for my $line (@lines) {
-    my $matched = 0;
-    if ($line =~ /^([   ]*)(##\s*(.*?))?
-$/) {
-        my $indent = $1;
-        my $indicator = $2;
-        if ($indicator) {
-            $indicator =~ s/\s+$//;
+for line in lines:
+    matched = False
+    clean_line = line.rstrip(chr(10)).rstrip(chr(13))
+    match = re.match(r"^([ 	]*)(##\s*(.*))$", clean_line)
+    if match:
+        indent = match.group(1)
+        indicator = match.group(2).strip()
+        
+        if indicator in clean_mappings:
+            replacement_code = clean_mappings[indicator]
+            repl_lines = replacement_code.splitlines()
+            for r_line in repl_lines:
+                output_lines.append(indent + r_line + chr(10))
+            matched = True
+            interpolations += 1
+            
+    if not matched:
+        output_lines.append(line)
 
-            for my $key (keys %$mappings) {
-                my $clean_key = $key;
-                $clean_key =~ s/^\s+//; $clean_key =~ s/\s+$//;
-                if ($indicator eq $clean_key) {
-                    my $replacement_code = $mappings->{$key};
-                    my @replacement_lines = split /
-/, $replacement_code;
-                    for my $repl_line (@replacement_lines) {
-                        push @output_lines, $indent . $repl_line . "
-";
-                    }
-                    $matched = 1;
-                    $interpolations++;
-                    last;
-                }
-            }
-        }
-    }
-    if (!$matched) {
-        push @output_lines, $line;
-    }
-}
+with open(file_to_modify, "w", encoding="utf-8") as f:
+    f.writelines(output_lines)
 
-open my $fh_out, ">", $file_to_modify or die "Can'\''t write to $file_to_modify: $!";
-print $fh_out @output_lines;
-close $fh_out;
-
-print "   ✔ Successfully interpolated $interpolations indicators.
-";
+print(f"   ✔ Successfully interpolated {interpolations} indicators.")
 ' "$TMP_JSON" "$ACTIVE_FILE"
 
 rm -f "$TMP_JSON"
