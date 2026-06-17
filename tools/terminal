@@ -37,17 +37,20 @@ if [[ -f "$STATE_FILE" ]] && command -v jq &>/dev/null; then
     fi
 fi
 
-SYS_PROMPT="You are an automated terminal command assistant. The user typed a natural language prompt instead of a terminal command.
-Based on the provided context, output the EXACT, single-line shell command to achieve their request.
+SYS_PROMPT="You are an automated terminal assistant. The user typed a natural language prompt instead of a terminal command.
+Based on the prompt and the provided context, you must determine if they want to execute a command or if they are asking a general question/talking conversationally.
 
 Rules:
-- Output ONLY the raw command.
-- Do NOT use markdown code blocks (no \`\`\`bash).
-- Do NOT use backticks.
-- Do NOT include any explanations, greetings, or conversational text.
-- Do NOT include any trailing newline or return character.
-- If multiple commands are needed, chain them on a single line using '&&' or ';'.
-- If the request is completely ambiguous or you cannot generate a command, output nothing."
+1. If they are asking for a shell command to execute (e.g. \"list files\", \"commit my changes\", \"git status\"):
+   - Output EXACTLY: COMMAND:<the exact single-line shell command>
+   - Do NOT include any explanations or conversational text.
+   - Example: COMMAND:git status
+
+2. If they are asking a general question, seeking explanation, or talking conversationally (e.g. \"is this working well\", \"what is git\", \"explain this directory\"):
+   - Output EXACTLY: CHAT:<your concise explanation, response, or answer>
+   - Example: CHAT:Yes, the agent is connected and working perfectly! Let me know if you need help with any commands.
+
+3. If the request is completely ambiguous or you cannot generate a response, output nothing."
 
 if [[ -z "$AGENT_VSCODE_SESSION_DIR" ]]; then
     SYS_PROMPT="${SYS_PROMPT}
@@ -86,6 +89,20 @@ RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/mod
 rm -f "$PAYLOAD_FILE" "$TMP_LOGS"
 
 RESULT=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty')
-CLEAN_RESULT=$(echo "$RESULT" | sed -E 's/^```[a-zA-Z]*//g; s/```$//g; s/`//g' | tr '
+
+if [[ "$RESULT" =~ ^[Cc][Oo][Mm][Mm][Aa][Nn][Dd]: ]]; then
+    CMD_BODY="${RESULT#*:}"
+    CLEAN_CMD=$(echo "$CMD_BODY" | sed -E 's/^```[a-zA-Z]*//g; s/```$//g; s/`//g' | tr '
 ' ' ' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-printf "%s" "$CLEAN_RESULT"
+    printf "COMMAND:%s" "$CLEAN_CMD"
+elif [[ "$RESULT" =~ ^[Cc][Hh][Aa][Tt]: ]]; then
+    CHAT_BODY="${RESULT#*:}"
+    CLEAN_CHAT=$(echo "$CHAT_BODY" | sed -E 's/^```[a-zA-Z]*//g; s/```$//g')
+    printf "CHAT:%s" "$CLEAN_CHAT"
+else
+    if [[ -n "$RESULT" ]]; then
+        CLEAN_CMD=$(echo "$RESULT" | sed -E 's/^```[a-zA-Z]*//g; s/```$//g; s/`//g' | tr '
+' ' ' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+        printf "COMMAND:%s" "$CLEAN_CMD"
+    fi
+fi

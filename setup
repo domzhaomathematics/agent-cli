@@ -6,7 +6,8 @@ RC_FILE="$HOME/.bashrc"
 if [[ "$(basename "$SHELL")" == "zsh" ]]; then RC_FILE="$HOME/.zshrc"; fi
 
 echo -e "
-⚙️  Deploying isolated agent_vscode package to $INSTALL_DIR..."
+⚙️  Deploying isolated agent_vscode package to $INSTALL_DIR...
+"
 
 mkdir -p "$INSTALL_DIR/tools" "$INSTALL_DIR/manage" "$INSTALL_DIR/sessions/.bindings"
 
@@ -33,7 +34,7 @@ if [[ "$RC_FILE" == *".zshrc" ]]; then
     if grep -q "command_not_found_handler" "$RC_FILE"; then
         cp "$RC_FILE" "${RC_FILE}.bak"
         perl -0777 -pe 's/# --- AGENT VSCODE COMMAND ROUTER INTEGRATION ---.*?# --- END AGENT VSCODE INTEGRATION ---//gs' "${RC_FILE}.bak" > "$RC_FILE"
-        perl -i -ne 'print unless /command_not_found_handler/ || /agent suggest/ || /agent terminal/ || /agent_vscode terminal/ || /_agent_vscode_precmd/' "$RC_FILE"
+        perl -i -ne 'print unless /command_not_found_handler/ || /agent suggest/ || /agent terminal/ || /agent_vscode terminal/ || /_agent_vscode_precmd/ || /_agent_vscode_accept_line/' "$RC_FILE"
     fi
 
     cat << 'OUT_EOF' >> "$RC_FILE"
@@ -42,6 +43,9 @@ if [[ "$RC_FILE" == *".zshrc" ]]; then
 if [[ "$TERM_PROGRAM" == "vscode" ]]; then
     # Bridge subshell isolation by staging suggestions to the parent shell
     _agent_vscode_precmd() {
+        local last_status=$?
+
+        # Bridge subshell isolation by staging suggestions to the parent shell
         local tmp_file="$HOME/.agent_vscode/suggested_command.tmp"
         if [[ -f "$tmp_file" ]]; then
             local suggestion
@@ -49,6 +53,37 @@ if [[ "$TERM_PROGRAM" == "vscode" ]]; then
             rm -f "$tmp_file"
             if [[ -n "$suggestion" ]]; then
                 print -z "$suggestion"
+                return 0
+            fi
+        fi
+
+        # Route natural-language command failures to agent_vscode
+        if [[ "$last_status" -ne 0 ]]; then
+            local last_cmd
+            last_cmd=$(fc -ln -1 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+            if [[ -n "$last_cmd" ]]; then
+                local first_word="${last_cmd%% *}"
+                local first_word_lower
+                first_word_lower=$(echo "$first_word" | tr '[:upper:]' '[:lower:]')
+                local suspect_words="what who where why how which is are can could should would do does did tell say ask show list please hello help"
+                if [[ " $suspect_words " =~ " $first_word_lower " ]]; then
+                    if [[ -z "$AGENT_VSCODE_SESSION_NAME" ]]; then
+                        echo "ℹ️  Command failed but matched natural language pattern. Consulting general LLM..." >&2
+                    fi
+                    local suggestion
+                    suggestion=$(agent_vscode terminal "$last_cmd")
+                    if [[ "$suggestion" =~ ^COMMAND: ]]; then
+                        local cmd="${suggestion#COMMAND:}"
+                        if [[ -n "$cmd" ]]; then
+                            print -z "$cmd"
+                        fi
+                    elif [[ "$suggestion" =~ ^CHAT: ]]; then
+                        local response="${suggestion#CHAT:}"
+                        echo -e "
+$response
+" >&2
+                    fi
+                fi
             fi
         fi
     }
@@ -56,6 +91,61 @@ if [[ "$TERM_PROGRAM" == "vscode" ]]; then
     # Register precmd hook to parent shell safely
     autoload -Uz add-zsh-hook
     add-zsh-hook precmd _agent_vscode_precmd
+
+    # Pre-empt parse errors by intercepting key reserved keywords/prompts before Zsh parsing runs
+    _agent_vscode_accept_line() {
+        local buf="${BUFFER#"${BUFFER%%[![:space:]]*}"}"
+        buf="${buf%"${buf##*[![:space:]]}"}"
+
+        if [[ -n "$buf" ]]; then
+            local first_word="${buf%% *}"
+            local first_word_lower
+            first_word_lower=$(echo "$first_word" | tr '[:upper:]' '[:lower:]')
+
+            local is_suspect=0
+            local suspect_words="what who where why how which is are can could should would do does did tell say ask show list please hello help"
+            if [[ " $suspect_words " =~ " $first_word_lower " ]]; then
+                local cmd_type
+                cmd_type=$(whence -w "$first_word" 2>/dev/null | awk '{print $2}')
+                # "do" is a reserved word but cannot legally start any statement on its own.
+                # If cmd_type is empty, the command doesn't exist locally.
+                if [[ "$first_word_lower" == "do" || -z "$cmd_type" ]]; then
+                    is_suspect=1
+                fi
+            fi
+
+            if [[ "$is_suspect" -eq 1 ]]; then
+                # Save query to history so up-arrow retrieve works
+                print -s "$buf"
+                BUFFER=""
+                echo -ne "
+"
+                if [[ -z "$AGENT_VSCODE_SESSION_NAME" ]]; then
+                    echo "ℹ️  Consulting general LLM..." >&2
+                fi
+                local suggestion
+                suggestion=$(agent_vscode terminal "$buf")
+                if [[ "$suggestion" =~ ^COMMAND: ]]; then
+                    local cmd="${suggestion#COMMAND:}"
+                    if [[ -n "$cmd" ]]; then
+                        BUFFER="$cmd"
+                    fi
+                elif [[ "$suggestion" =~ ^CHAT: ]]; then
+                    local response="${suggestion#CHAT:}"
+                    echo -e "
+$response
+" >&2
+                fi
+                zle reset-prompt
+                return 0
+            fi
+        fi
+        zle .accept-line
+    }
+
+    if [[ -o interactive ]]; then
+        zle -N accept-line _agent_vscode_accept_line
+    fi
 
     command_not_found_handler() {
         if command -v agent_vscode &>/dev/null; then
@@ -67,16 +157,24 @@ if [[ "$TERM_PROGRAM" == "vscode" ]]; then
             local suggestion
             suggestion=$(agent_vscode terminal "$@")
 
-            # If agent suggests nothing, behave standardly
-            if [[ -z "$suggestion" ]]; then
-                echo "zsh: command not found: $1" >&2
-                return 127
+            if [[ "$suggestion" =~ ^COMMAND: ]]; then
+                local cmd="${suggestion#COMMAND:}"
+                if [[ -n "$cmd" ]]; then
+                    mkdir -p "$HOME/.agent_vscode"
+                    echo -n "$cmd" > "$HOME/.agent_vscode/suggested_command.tmp"
+                    return 0
+                fi
+            elif [[ "$suggestion" =~ ^CHAT: ]]; then
+                local response="${suggestion#CHAT:}"
+                echo -e "
+$response
+" >&2
+                return 0
             fi
 
-            # Stage command directly without console pollution
-            mkdir -p "$HOME/.agent_vscode"
-            echo -n "$suggestion" > "$HOME/.agent_vscode/suggested_command.tmp"
-            return 0
+            # If agent suggests nothing or behaves standardly
+            echo "zsh: command not found: $1" >&2
+            return 127
         else
             echo "zsh: command not found: $1" >&2
             return 127
