@@ -65,7 +65,7 @@ if [[ "$TERM_PROGRAM" == "vscode" ]]; then
                 local first_word="${last_cmd%% *}"
                 local first_word_lower
                 first_word_lower=$(echo "$first_word" | tr '[:upper:]' '[:lower:]')
-                local suspect_words="what who where why how which is are can could should would do does did tell say ask show list please hello help ok hey hi terminal explain debug find it's its there's theres can you could you should we do you did you check analyze test write edit run"
+                local suspect_words="what who where why how which is are can could should would do does did tell say ask show list please hello help ok hey hi terminal explain debug find it's its there's theres can you could you should we do you did you check analyze test write edit run awesome perfect cool excellent great"
                 if [[ " $suspect_words " =~ " $first_word_lower " ]]; then
                     if [[ -z "$AGENT_VSCODE_SESSION_NAME" ]]; then
                         echo "ℹ️  Command failed but matched natural language pattern. Consulting general LLM..." >&2
@@ -103,14 +103,30 @@ $response
             first_word_lower=$(echo "$first_word" | tr '[:upper:]' '[:lower:]')
 
             local is_suspect=0
-            local suspect_words="what who where why how which is are can could should would do does did tell say ask show list please hello help ok hey hi terminal explain debug find it's its there's theres can you could you should we do you did you check analyze test write edit run"
-            if [[ " $suspect_words " =~ " $first_word_lower " ]]; then
-                local cmd_type
+            local suspect_words="what who where why how which is are can could should would do does did tell say ask show list please hello help ok hey hi terminal explain debug find it's its there's theres can you could you should we do you did you check analyze test write edit run awesome perfect cool excellent great"
+            
+            # Check if first word is a command/alias/builtin
+            local cmd_type=""
+            if [[ -n "$first_word" ]]; then
                 cmd_type=$(whence -w "$first_word" 2>/dev/null | awk '{print $2}')
-                # "do" is a reserved word but cannot legally start any statement on its own.
-                # If cmd_type is empty, the command doesn't exist locally.
-                if [[ "$first_word_lower" == "do" || -z "$cmd_type" ]]; then
+            fi
+
+            # We consider it suspect if:
+            # 1. The first word is in our suspect words list, AND it's not a valid local command
+            if [[ " $suspect_words " =~ " $first_word_lower " ]]; then
+                if [[ "$first_word_lower" == "do" || -z "$cmd_type" || "$cmd_type" == "none" ]]; then
                     is_suspect=1
+                fi
+            fi
+
+            # 2. Or, if the first word is NOT a valid local command, and the buffer contains "?" or quotes/globs
+            if [[ "$is_suspect" -eq 0 && ("$cmd_type" == "none" || -z "$cmd_type") ]]; then
+                # Ensure it's not a path or environment variable assignment
+                if [[ ! "$first_word" =~ ^[\./~] && ! "$first_word" == *=* ]]; then
+                    # If it has a question mark or quotes
+                    if [[ "$buf" == *[\?\'\"]* ]]; then
+                        is_suspect=1
+                    fi
                 fi
             fi
 
