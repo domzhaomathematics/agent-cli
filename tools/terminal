@@ -9,7 +9,7 @@ if [[ -n "$AGENT_VSCODE_SESSION_DIR" ]]; then
     if [[ -x "$AGENT_VSCODE_DIR/tools/update" ]]; then "$AGENT_VSCODE_DIR/tools/update" -q; fi
 fi
 
-TMP_LOGS="$AGENT_VSCODE_DIR/tmp_logs_terminal.txt"
+TMP_LOGS="$AGENT_VSCODE_DIR/tmp_logs_terminal_$$.txt"
 if [[ -n "$AGENT_VSCODE_SESSION_DIR" ]]; then
     "$AGENT_VSCODE_DIR/tools/logs" 100 -q > "$TMP_LOGS" 2>/dev/null
 else

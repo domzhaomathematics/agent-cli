@@ -8,8 +8,7 @@ LINES=${1:-1500}
 QUIET=0
 if [[ "$1" == "-q" || "$2" == "-q" ]]; then QUIET=1; fi
 
-if [[ $QUIET -eq 0 ]]; then echo -e "
---- RAW TERMINAL LOGS (Last $LINES lines) ---"; fi
+if [[ $QUIET -eq 0 ]]; then echo -e "\n--- RAW TERMINAL LOGS (Last $LINES lines) ---"; fi
 
 # Clean the terminal log:
 # 1. Strip CSI (ANSI colors, cursor movements, bracketed paste)
@@ -17,13 +16,12 @@ if [[ $QUIET -eq 0 ]]; then echo -e "
 # 3. Resolve backspaces dynamically (simulating real typing)
 # 4. Strip carriage returns and bells
 tail -n "$LINES" "$LOG_FILE" | perl -pe '
-    s/\[[0-9;?]*[a-zA-Z]//g;
-    s/\].*?(?:|\)//g;
-    1 while s/[^]//g;
-    s/+//g;
-    s///g;
-    s///g;
+    s/\x1b\[[0-9;?]*[a-zA-Z]//g;
+    s/\x1b\].*?(?:\x07|\x1b\\)//g;
+    1 while s/[^\x08]\x08//g;
+    s/\x08+//g;
+    s/\r//g;
+    s/\x07//g;
 '
 
-if [[ $QUIET -eq 0 ]]; then echo -e "--------------------------------------------------
-"; fi
+if [[ $QUIET -eq 0 ]]; then echo -e "--------------------------------------------------\n"; fi

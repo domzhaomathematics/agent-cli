@@ -18,7 +18,7 @@ CURRENT_PROPOSAL=""
 FEEDBACK=""
 
 while true; do
-    TMP_LOGS="$AGENT_VSCODE_DIR/tmp_logs.txt"
+    TMP_LOGS="$AGENT_VSCODE_DIR/tmp_logs_$$.txt"
     "$AGENT_VSCODE_DIR/tools/logs" 150 -q > "$TMP_LOGS"
     if [[ -x "$AGENT_VSCODE_DIR/tools/update" ]]; then "$AGENT_VSCODE_DIR/tools/update" -q; fi
 
