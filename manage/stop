@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-
-if [[ -n "$SESSION_NAME" ]]; then
-    # Instantly kill the user's interactive subshell.
-    # This automatically drops control back to manage/start, which executes the log cleanup!
+if [[ -n "$AGENT_VSCODE_SESSION_NAME" ]]; then
     kill -9 $PPID
 else
     echo "[Global] You are already in global mode."

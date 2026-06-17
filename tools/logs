@@ -1,27 +1,24 @@
 #!/usr/bin/env bash
-if [[ -z "$SESSION_DIR" ]]; then echo "[Error] Session not active."; exit 1; fi
+if [[ -z "$AGENT_VSCODE_SESSION_DIR" ]]; then echo "[Error] Session not active."; exit 1; fi
 
-LOG_FILE="$SESSION_DIR/logs/terminal_raw.log"
+LOG_FILE="$AGENT_VSCODE_SESSION_DIR/logs/terminal_raw.log"
 if [[ ! -f "$LOG_FILE" ]]; then exit 0; fi
 
 LINES=${1:-1500}
 QUIET=0
 if [[ "$1" == "-q" || "$2" == "-q" ]]; then QUIET=1; fi
 
-if [[ $QUIET -eq 0 ]]; then echo -e "\n--- RAW TERMINAL LOGS (Last $LINES lines) ---"; fi
+if [[ $QUIET -eq 0 ]]; then echo -e "
+--- RAW TERMINAL LOGS (Last $LINES lines) ---"; fi
 
-# Clean the terminal log:
-# 1. Strip CSI (ANSI colors, cursor movements, bracketed paste)
-# 2. Strip OSC (Terminal window titles)
-# 3. Resolve backspaces dynamically (simulating real typing)
-# 4. Strip carriage returns and bells
 tail -n "$LINES" "$LOG_FILE" | perl -pe '
-    s/\x1b\[[0-9;?]*[a-zA-Z]//g;
-    s/\x1b\].*?(?:\x07|\x1b\\)//g;
-    1 while s/[^\x08]\x08//g;
-    s/\x08+//g;
-    s/\r//g;
-    s/\x07//g;
+    s/[[0-9;?]*[a-zA-Z]//g;
+    s/].*?(?:|)//g;
+    1 while s/[//g;
+    s+//g;
+//g;s/
+    s///g;
 '
 
-if [[ $QUIET -eq 0 ]]; then echo -e "--------------------------------------------------\n"; fi
+if [[ $QUIET -eq 0 ]]; then echo -e "--------------------------------------------------
+"; fi

@@ -1,54 +1,88 @@
 #!/usr/bin/env bash
-AGENT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]:-$0}")")"
+SRC_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]:-$0}")")"
+INSTALL_DIR="$HOME/.agent_vscode"
 BIN_DIR="$HOME/.local/bin"
 RC_FILE="$HOME/.bashrc"
 if [[ "$(basename "$SHELL")" == "zsh" ]]; then RC_FILE="$HOME/.zshrc"; fi
 
-echo -e "\n⚙️  Setting up agent-cli...\n"
+echo -e "
+⚙️  Deploying isolated agent_vscode package to $INSTALL_DIR..."
 
-# Create core folder architecture if it doesn't exist
-mkdir -p "$AGENT_DIR/tools" "$AGENT_DIR/sequence" "$AGENT_DIR/sessions/.bindings"
+# Create clean hierarchy
+mkdir -p "$INSTALL_DIR/tools" "$INSTALL_DIR/manage" "$INSTALL_DIR/sessions/.bindings"
 
-if ! command -v jq &> /dev/null; then
-    echo "   📦 'jq' is missing. Attempting to install (may ask for sudo)..."
-    if command -v apt-get &> /dev/null; then sudo apt-get update -qq && sudo apt-get install -y jq; fi
-    echo "   ✔ 'jq' installed."
-fi
+# Copy package structures cleanly
+cp "$SRC_DIR/agent_vscode" "$INSTALL_DIR/agent_vscode"
+cp -r "$SRC_DIR/tools/"* "$INSTALL_DIR/tools/" 2>/dev/null
+cp -r "$SRC_DIR/manage/"* "$INSTALL_DIR/manage/" 2>/dev/null
 
-chmod +x "$AGENT_DIR/agent" "$AGENT_DIR/setup" 2>/dev/null
-chmod +x "$AGENT_DIR"/tools/* 2>/dev/null
-chmod +x "$AGENT_DIR"/sequence/* 2>/dev/null
-echo "   ✔ Scripts made executable."
+chmod +x "$INSTALL_DIR/agent_vscode"
+chmod +x "$INSTALL_DIR"/tools/*
+chmod +x "$INSTALL_DIR"/manage/*
 
+# Bind Symlink
 mkdir -p "$BIN_DIR"
-ln -sf "$AGENT_DIR/agent" "$BIN_DIR/agent"
-echo "   ✔ Symlink created ($BIN_DIR/agent)."
+ln -sf "$INSTALL_DIR/agent_vscode" "$BIN_DIR/agent_vscode"
+echo "   ✔ Global decoupled symlink established ($BIN_DIR/agent_vscode -> $INSTALL_DIR/agent_vscode)"
 
+# Secure path inclusion
 if ! grep -q "$BIN_DIR" "$RC_FILE" 2>/dev/null; then
-    echo -e "\nexport PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$RC_FILE"
-    echo "   ✔ PATH updated in $(basename "$RC_FILE")."
+    echo -e "
+export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$RC_FILE"
+    echo "   ✔ PATH updated in $(basename "$RC_FILE")"
 fi
 
-if ! grep -q "GEMINI_API_KEY" "$RC_FILE" 2>/dev/null; then
-    echo -ne "\n🤖 Configure Gemini 3 Flash API Key? (y/n): "
-    read -r config_ai
-    if [[ "$config_ai" =~ ^[Yy]$ ]]; then
-        echo -ne "   Paste your API Key (input hidden): "
-        read -s api_key; echo ""
-        if [[ -n "$api_key" ]]; then 
-            echo "export GEMINI_API_KEY=\"$api_key\"" >> "$RC_FILE"
-            echo "   ✔ API Key securely saved."
-        fi
+# Inject Terminal Command Router Integration safely
+if [[ "$RC_FILE" == *".zshrc" ]]; then
+    # Clean previous blocks safely
+    if grep -q "command_not_found_handler" "$RC_FILE"; then
+        cp "$RC_FILE" "${RC_FILE}.bak"
+        perl -0777 -pe 's/# --- AGENT VSCODE COMMAND ROUTER INTEGRATION ---.*?# --- END AGENT VSCODE INTEGRATION ---//gs' "${RC_FILE}.bak" > "$RC_FILE"
+        perl -i -ne 'print unless /command_not_found_handler/ || /agent suggest/ || /agent terminal/ || /agent_vscode terminal/' "$RC_FILE"
     fi
+
+    cat << 'OUT_EOF' >> "$RC_FILE"
+
+# --- AGENT VSCODE COMMAND ROUTER INTEGRATION ---
+if [[ "$TERM_PROGRAM" == "vscode" ]]; then
+    command_not_found_handler() {
+        if command -v agent_vscode &>/dev/null; then
+            if [[ -z "$AGENT_VSCODE_SESSION_NAME" ]]; then
+                echo "ℹ️  No active agent_vscode session. Using general LLM suggestion..." >&2
+            fi
+
+            # Contact isolated VS Code agent for command suggestion
+            local suggestion
+            suggestion=$(agent_vscode terminal "$@")
+
+            # If agent suggests nothing, behave standardly
+            if [[ -z "$suggestion" ]]; then
+                echo "zsh: command not found: $1" >&2
+                return 127
+            fi
+
+            # Print suggested command and stage it in the terminal input buffer
+            echo "💡 Suggested Command: $suggestion"
+            print -z "$suggestion"
+            return 0
+        else
+            echo "zsh: command not found: $1" >&2
+            return 127
+        fi
+    }
+fi
+# --- END AGENT VSCODE INTEGRATION ---
+OUT_EOF
+    echo "   ✔ Command Router integration updated inside $RC_FILE."
 fi
 
-echo -e "\n✅ Setup complete!"
-echo -e "\n-------------------------------------------------------"
-echo -e " 🚀 HOW TO START"
+echo -e "
+✅ agent_vscode deployment complete!"
 echo -e "-------------------------------------------------------"
-echo -e " To use 'agent' right now in this window, run:"
-echo -e " 👉  source $RC_FILE\n"
-echo -e " (Or simply close this and open a new terminal window)\n"
-echo -e " Then try your first command:"
-echo -e "     agent help"
-echo -e "-------------------------------------------------------\n"
+echo -e " 🚀 DEVELOPER WORKFLOW TIPS"
+echo -e "-------------------------------------------------------"
+echo -e " - Write & edit your code safely in: $SRC_DIR"
+echo -e " - Execute 'bash setup' inside your repository to deploy changes."
+echo -e " - Run 'agent_vscode help' to test."
+echo -e "-------------------------------------------------------
+"

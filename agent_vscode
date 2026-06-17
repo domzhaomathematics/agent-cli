@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+export AGENT_VSCODE_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]:-$0}")")"
+mkdir -p "$AGENT_VSCODE_DIR/sessions/.bindings"
+
+# Resolve Session (With Ghost-Tab Protection & Log Cleanup)
+if [[ -z "$AGENT_VSCODE_SESSION_RESOLVED" ]]; then
+    CURRENT_TTY=$(tty | sed 's|/|_|g')
+    BINDING_FILE="$AGENT_VSCODE_DIR/sessions/.bindings/$CURRENT_TTY"
+    if [[ -f "$BINDING_FILE" ]]; then
+        BIND_DATA=$(cat "$BINDING_FILE")
+        B_NAME="${BIND_DATA%:*}"
+        B_PID="${BIND_DATA#*:}"
+        
+        if [[ -z "$B_PID" || "$B_PID" == "$B_NAME" ]] || ps -p "$B_PID" >/dev/null 2>&1; then
+            export AGENT_VSCODE_SESSION_NAME="$B_NAME"
+            export AGENT_VSCODE_SESSION_DIR="$AGENT_VSCODE_DIR/sessions/$B_NAME"
+        else
+            rm -f "$AGENT_VSCODE_DIR/sessions/$B_NAME/logs/terminal_raw.log"
+            rm -f "$BINDING_FILE"
+        fi
+    fi
+    export AGENT_VSCODE_SESSION_RESOLVED="1"
+fi
+
+# Handle Model Tiers (Defaults to gemini-3.5-flash)
+export AGENT_VSCODE_MODEL="gemini-3.5-flash"
+NEW_ARGS=()
+for arg in "$@"; do
+    if [[ "$arg" == "-s" || "$arg" == "-smartest" ]]; then
+        export AGENT_VSCODE_MODEL="gemini-3.1-pro-preview"
+    else
+        NEW_ARGS+=("$arg")
+    fi
+done
+set -- "${NEW_ARGS[@]}"
+
+COMMAND="$1"
+shift
+[[ -z "$COMMAND" ]] && COMMAND="help"
+
+# Session Enforcement
+PUBLIC_CMDS="help start resume list delete stop ask terminal"
+if [[ -z "$AGENT_VSCODE_SESSION_NAME" ]]; then
+    if [[ ! " $PUBLIC_CMDS " =~ " $COMMAND " ]]; then
+        echo "❌ Error: No active session found. Run 'agent_vscode start <name>' first."
+        exit 1
+    fi
+fi
+
+# Routing
+if [[ -x "$AGENT_VSCODE_DIR/tools/$COMMAND" ]]; then exec "$AGENT_VSCODE_DIR/tools/$COMMAND" "$@"
+elif [[ -x "$AGENT_VSCODE_DIR/manage/$COMMAND" ]]; then exec "$AGENT_VSCODE_DIR/manage/$COMMAND" "$@"
+else
+    echo "❌ Error: Command '$COMMAND' not found."
+    exit 1
+fi

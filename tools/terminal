@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+
+PROMPT="$*"
+if [[ -z "$PROMPT" ]]; then
+    exit 0
+fi
+
+if [[ -n "$AGENT_VSCODE_SESSION_DIR" ]]; then
+    if [[ -x "$AGENT_VSCODE_DIR/tools/update" ]]; then "$AGENT_VSCODE_DIR/tools/update" -q; fi
+fi
+
+TMP_LOGS="$AGENT_VSCODE_DIR/tmp_logs_terminal.txt"
+if [[ -n "$AGENT_VSCODE_SESSION_DIR" ]]; then
+    "$AGENT_VSCODE_DIR/tools/logs" 100 -q > "$TMP_LOGS" 2>/dev/null
+else
+    > "$TMP_LOGS"
+fi
+
+VSCODE_CONTEXT=""
+STATE_FILE="$HOME/.agentvscode/active_editor.json"
+if [[ -f "$STATE_FILE" ]] && command -v jq &>/dev/null; then
+    F_PATH=$(jq -r '.filePath // empty' "$STATE_FILE")
+    if [[ -n "$F_PATH" ]]; then
+        F_LINE=$(jq -r '.line' "$STATE_FILE")
+        F_CHAR=$(jq -r '.character' "$STATE_FILE")
+        F_CONTENT=$(jq -r '.lineContent' "$STATE_FILE")
+        F_SEL=$(jq -r '.selectedText' "$STATE_FILE")
+        
+        VSCODE_CONTEXT="VS CODE EDITOR STATE:
+- Active File: $F_PATH
+- Cursor Position: Line $F_LINE, Column $F_CHAR
+- Current Line Content: \"$F_CONTENT\""
+        if [[ -n "$F_SEL" ]]; then
+            VSCODE_CONTEXT="${VSCODE_CONTEXT}
+- Highlighted Selection: \"$F_SEL\""
+        fi
+    fi
+fi
+
+SYS_PROMPT="You are an automated terminal command assistant. The user typed a natural language prompt instead of a terminal command.
+Based on the provided context, output the EXACT, single-line shell command to achieve their request.
+
+Rules:
+- Output ONLY the raw command.
+- Do NOT use markdown code blocks (no \`\`\`bash).
+- Do NOT use backticks.
+- Do NOT include any explanations, greetings, or conversational text.
+- Do NOT include any trailing newline or return character.
+- If multiple commands are needed, chain them on a single line using '&&' or ';'.
+- If the request is completely ambiguous or you cannot generate a command, output nothing."
+
+if [[ -z "$AGENT_VSCODE_SESSION_DIR" ]]; then
+    SYS_PROMPT="${SYS_PROMPT}
+
+⚠️ NOTE: Currently, there is NO active workspace session context. Suggest a general command based solely on standard shell tools and the active editor file."
+fi
+
+PAYLOAD_FILE="$AGENT_VSCODE_DIR/payload_terminal.json"
+jq -n --arg pmt "$PROMPT" --arg sys "$SYS_PROMPT" '{"contents":[{"parts":[{"text": ($sys + "
+
+User Question:
+" + $pmt)}]}]}' > "$PAYLOAD_FILE"
+
+if [[ -n "$VSCODE_CONTEXT" ]]; then
+    jq --arg ctx "$VSCODE_CONTEXT" '.contents[0].parts[0].text = $ctx + "
+
+" + .contents[0].parts[0].text' "$PAYLOAD_FILE" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"
+fi
+
+if [[ -n "$AGENT_VSCODE_SESSION_DIR" ]]; then
+    if [[ -s "$AGENT_VSCODE_SESSION_DIR/context.txt" ]]; then 
+        jq --rawfile raw "$AGENT_VSCODE_SESSION_DIR/context.txt" '.contents[0].parts[0].text = "Project Context:
+" + $raw + "
+" + .contents[0].parts[0].text' "$PAYLOAD_FILE" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"
+    fi
+    if [[ -s "$TMP_LOGS" ]]; then 
+        jq --rawfile raw "$TMP_LOGS" '.contents[0].parts[0].text = "Terminal Logs:
+" + $raw + "
+" + .contents[0].parts[0].text' "$PAYLOAD_FILE" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"
+    fi
+fi
+
+RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/${AGENT_VSCODE_MODEL}:generateContent?key=$GEMINI_API_KEY" \
+    -H "Content-Type: application/json" -d @"$PAYLOAD_FILE")
+
+rm -f "$PAYLOAD_FILE" "$TMP_LOGS"
+
+RESULT=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty')
+CLEAN_RESULT=$(echo "$RESULT" | sed -E 's/^```[a-zA-Z]*//g; s/```$//g; s/`//g' | tr '
+' ' ' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+printf "%s" "$CLEAN_RESULT"

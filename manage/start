@@ -1,21 +1,19 @@
 #!/usr/bin/env bash
-
 NAME="$1"
-if [[ -z "$NAME" ]]; then echo "Usage: agent start <name>"; exit 1; fi
+if [[ -z "$NAME" ]]; then echo "Usage: agent_vscode start <name>"; exit 1; fi
 
-S_DIR="$AGENT_DIR/sessions/$NAME"
-
+S_DIR="$AGENT_VSCODE_DIR/sessions/$NAME"
 mkdir -p "$S_DIR/logs" "$S_DIR/scripts"
 > "$S_DIR/context.txt"
 > "$S_DIR/logs/terminal_raw.log"
 
 CURRENT_TTY=$(tty | sed 's|/|_|g')
-echo "$NAME:$$" > "$AGENT_DIR/sessions/.bindings/$CURRENT_TTY"
+echo "$NAME:$$" > "$AGENT_VSCODE_DIR/sessions/.bindings/$CURRENT_TTY"
 echo "[Session: $NAME] Workspace created. Dropping into monitored shell..."
 
-export AGENT_SESSION_RESOLVED="1"
-export SESSION_NAME="$NAME"
-export SESSION_DIR="$S_DIR"
+export AGENT_VSCODE_SESSION_RESOLVED="1"
+export AGENT_VSCODE_SESSION_NAME="$NAME"
+export AGENT_VSCODE_SESSION_DIR="$S_DIR"
 
 if [[ "$(uname)" == "Darwin" ]]; then
     script -F -q "$S_DIR/logs/terminal_raw.log"
@@ -23,6 +21,6 @@ else
     script -f -q "$S_DIR/logs/terminal_raw.log"
 fi
 
-rm -f "$AGENT_DIR/sessions/.bindings/$CURRENT_TTY"
+rm -f "$AGENT_VSCODE_DIR/sessions/.bindings/$CURRENT_TTY"
 rm -f "$S_DIR/logs/terminal_raw.log"
 echo "[Global] Session ended. Logs cleared. Terminal unbound."

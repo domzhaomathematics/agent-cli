@@ -1,35 +1,35 @@
 #!/usr/bin/env bash
-if [[ -z "$SESSION_DIR" ]]; then echo "[Error] Session not active."; exit 1; fi
+if [[ -z "$AGENT_VSCODE_SESSION_DIR" ]]; then echo "[Error] Session not active."; exit 1; fi
 
 if [[ $# -gt 0 ]]; then
-    echo "[Warning] 'agent ask' is interactive. Inline arguments are ignored."
+    echo "[Warning] 'agent_vscode ask' is interactive. Inline arguments are ignored."
 fi
 
 PROMPT=""
 
 while true; do
-    # Initial State or State B (No script proposed)
     if [[ -z "$PROMPT" ]]; then
-        echo -e "\n💬 Ask Agent [Enter submits. Pasting multi-line text works safely]:"
+        echo -e "
+💬 Ask Agent [Enter submits. Pasting multi-line text works safely]:"
         read -e -r first_line || exit 0
         PROMPT="$first_line"
         
-        # 0.1s timer to catch any rapid-fire lines from a paste buffer
         while read -t 1 -r extra_line; do
-            PROMPT+=$'\n'"$extra_line"
+            PROMPT+=$'
+'"$extra_line"
         done
     fi
     
-    # If the user just hits Enter with no text, loop back
     if [[ -z "$(echo -e "$PROMPT" | tr -d '[:space:]')" ]]; then PROMPT=""; continue; fi
 
-    echo -e "\nUser: $PROMPT"
+    echo -e "
+User: $PROMPT"
 
-    TMP_LOGS="$AGENT_DIR/tmp_logs.txt"
-    "$AGENT_DIR/tools/logs" > "$TMP_LOGS"
-    if [[ -x "$AGENT_DIR/tools/update" ]]; then "$AGENT_DIR/tools/update" -q; fi
+    TMP_LOGS="$AGENT_VSCODE_DIR/tmp_logs.txt"
+    "$AGENT_VSCODE_DIR/tools/logs" > "$TMP_LOGS"
+    if [[ -x "$AGENT_VSCODE_DIR/tools/update" ]]; then "$AGENT_VSCODE_DIR/tools/update" -q; fi
 
-    TOK_CTX=$(($(wc -m < "$SESSION_DIR/context.txt" 2>/dev/null || echo 0) / 3))
+    TOK_CTX=$(($(wc -m < "$AGENT_VSCODE_SESSION_DIR/context.txt" 2>/dev/null || echo 0) / 3))
     TOK_LOG=$(($(wc -m < "$TMP_LOGS" 2>/dev/null || echo 0) / 3))
     TOK_TOT=$((TOK_CTX + TOK_LOG))
 
@@ -37,27 +37,36 @@ while true; do
 
     if (( TOK_TOT > 200000 )); then
         echo "[Alert] Context exceeds 200k tokens. High cost and severe degradation risk."
-        echo "Tip: Use 'agent context' to find large files, and 'agent unread <path>' to remove them."
+        echo "Tip: Use 'agent_vscode context' to find large files, and 'agent_vscode unread <path>' to remove them."
         read -e -p "Proceed? [y/N]: " proceed
         if [[ ! "$proceed" =~ ^[Yy]$ ]]; then rm -f "$TMP_LOGS"; PROMPT=""; continue; fi
     elif (( TOK_TOT > 100000 )); then
         echo "[Warning] Context exceeds 100k tokens. Performance may degrade."
     fi
 
-    echo "Thinking (Model: $AGENT_MODEL)..."
+    echo "Thinking (Model: $AGENT_VSCODE_MODEL)..."
 
     SYS_PROMPT="You are a precise, highly skilled coding assistant. You must provide concise, dense text explanations. Do not use conversational filler. The explanation should be about which step you will execute in the plan (if not all), how you will do it, and if there is user feedback, you should reference the user feedback, and incorporate it into your explanation. If you are unsure about something , you can ask the user, but only ask if something is really ambiguous, or not possible to execute (no access,etc).
 If actions (creating files, executing commands) are required, output AT MOST ONE \`bash\` code block (using \`\`\`bash).
 Even if multiple files need creating or editing, combine them into this SINGLE script using \`cat << 'EOF'\`, \`sed\`, or other shell utilities. Provide exactly one bash block if code execution is needed."
 
-    PAYLOAD_FILE="$AGENT_DIR/payload.json"
-    jq -n --arg pmt "$PROMPT" --arg sys "$SYS_PROMPT" '{"contents":[{"parts":[{"text": ($sys + "\n\nUser Question:\n" + $pmt)}]}]}' > "$PAYLOAD_FILE"
+    PAYLOAD_FILE="$AGENT_VSCODE_DIR/payload.json"
+    jq -n --arg pmt "$PROMPT" --arg sys "$SYS_PROMPT" '{"contents":[{"parts":[{"text": ($sys + "
 
-    if [[ -s "$SESSION_DIR/context.txt" ]]; then jq --rawfile raw "$SESSION_DIR/context.txt" '.contents[0].parts[0].text = "Project Context:\n" + $raw + "\n" + .contents[0].parts[0].text' "$PAYLOAD_FILE" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
-    if [[ -s "$TMP_LOGS" ]]; then jq --rawfile raw "$TMP_LOGS" '.contents[0].parts[0].text = "Terminal Logs:\n" + $raw + "\n" + .contents[0].parts[0].text' "$PAYLOAD_FILE" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
-    if [[ -f "$SESSION_DIR/plan.md" ]]; then jq --rawfile raw "$SESSION_DIR/plan.md" '.contents[0].parts[0].text = "Mission Plan:\n" + $raw + "\n" + .contents[0].parts[0].text' "$PAYLOAD_FILE" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
+User Question:
+" + $pmt)}]}]}' > "$PAYLOAD_FILE"
 
-    RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/${AGENT_MODEL}:generateContent?key=$GEMINI_API_KEY" \
+    if [[ -s "$AGENT_VSCODE_SESSION_DIR/context.txt" ]]; then jq --rawfile raw "$AGENT_VSCODE_SESSION_DIR/context.txt" '.contents[0].parts[0].text = "Project Context:
+" + $raw + "
+" + .contents[0].parts[0].text' "$PAYLOAD_FILE" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
+    if [[ -s "$TMP_LOGS" ]]; then jq --rawfile raw "$TMP_LOGS" '.contents[0].parts[0].text = "Terminal Logs:
+" + $raw + "
+" + .contents[0].parts[0].text' "$PAYLOAD_FILE" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
+    if [[ -f "$AGENT_VSCODE_SESSION_DIR/plan.md" ]]; then jq --rawfile raw "$AGENT_VSCODE_SESSION_DIR/plan.md" '.contents[0].parts[0].text = "Mission Plan:
+" + $raw + "
+" + .contents[0].parts[0].text' "$PAYLOAD_FILE" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
+
+    RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/${AGENT_VSCODE_MODEL}:generateContent?key=$GEMINI_API_KEY" \
         -H "Content-Type: application/json" -d @"$PAYLOAD_FILE")
 
     rm -f "$PAYLOAD_FILE" "$TMP_LOGS"
@@ -69,47 +78,49 @@ Even if multiple files need creating or editing, combine them into this SINGLE s
         continue
     fi
 
-    # Parse out the pure text and pure bash script blocks safely
     TEXT_PART=$(echo "$RESULT" | awk '/^```bash/ { in_code = 1; next } /^```/ { if (in_code) { in_code = 0; next } } { if (!in_code) print }')
     SCRIPT_PART=$(echo "$RESULT" | awk '/^```bash/ { in_code = 1; next } /^```/ { if (in_code) { in_code = 0; next } } { if (in_code) print }')
 
-    echo -e "\n$TEXT_PART\n"
+    echo -e "
+$TEXT_PART
+"
 
-    # State A: Script is proposed
-    if [[ -n "$SCRIPT_PART" && "$SCRIPT_PART" != $'\n' ]]; then
+    if [[ -n "$SCRIPT_PART" && "$SCRIPT_PART" != $'
+' ]]; then
         echo "---[ SCRIPT BLOCK START ]---"
         echo "$SCRIPT_PART"
         echo "---[ SCRIPT BLOCK END ]---"
         echo ""
         
-        # Flush any stray keystrokes from the terminal buffer just in case
         while read -t 0; do read -r; done
         
         echo -ne "🚀 [Enter] to run script | [Ctrl+C] to exit | [f] to write feedback: "
         read -e -r DECISION || exit 0
         
         if [[ -z "$DECISION" ]]; then
-            TMP_SCRIPT="$AGENT_DIR/tmp_run.sh"
+            TMP_SCRIPT="$AGENT_VSCODE_DIR/tmp_run.sh"
             echo "$SCRIPT_PART" > "$TMP_SCRIPT"
             chmod +x "$TMP_SCRIPT"
-            echo -e "\n[Executing Script...]"
+            echo -e "
+[Executing Script...]"
             bash "$TMP_SCRIPT"
             rm -f "$TMP_SCRIPT"
-            echo -e "[Execution Complete]\n"
+            echo -e "[Execution Complete]
+"
             PROMPT=""
         elif [[ "$DECISION" == "f" || "$DECISION" == "F" ]]; then
-            echo -e "\n📝 Enter Feedback:"
+            echo -e "
+📝 Enter Feedback:"
             read -e -r first_line || exit 0
             PROMPT="$first_line"
             while read -t 1 -r extra_line; do
-                PROMPT+=$'\n'"$extra_line"
+                PROMPT+=$'
+'"$extra_line"
             done
         else
-            # If they just typed a quick sentence directly instead of pressing 'f'
             PROMPT="$DECISION"
         fi
     else
-        # State B: No script proposed
         PROMPT=""
     fi
 done

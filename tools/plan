@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-if [[ -z "$SESSION_DIR" ]]; then echo "[Error] Session not active."; exit 1; fi
-export AGENT_MODEL="gemini-3.1-pro-preview"
+if [[ -z "$AGENT_VSCODE_SESSION_DIR" ]]; then echo "[Error] Session not active."; exit 1; fi
+export AGENT_VSCODE_MODEL="gemini-3.1-pro-preview"
 
 GOAL="$*"
 if [[ -z "$GOAL" ]]; then 
-    echo -e "\n🎯 What is your goal? [Enter submits. Pasting multi-line text works safely]:"
+    echo -e "
+🎯 What is your goal? [Enter submits. Pasting multi-line text works safely]:"
     read -e -r first_line || exit 0
     GOAL="$first_line"
     while read -t 1 -r extra_line; do
-        GOAL+=$'\n'"$extra_line"
+        GOAL+=$'
+'"$extra_line"
     done
 fi
 
@@ -16,11 +18,11 @@ CURRENT_PROPOSAL=""
 FEEDBACK=""
 
 while true; do
-    TMP_LOGS="$AGENT_DIR/tmp_logs.txt"
-    "$AGENT_DIR/tools/logs" 150 -q > "$TMP_LOGS"
-    if [[ -x "$AGENT_DIR/tools/update" ]]; then "$AGENT_DIR/tools/update" -q; fi
+    TMP_LOGS="$AGENT_VSCODE_DIR/tmp_logs.txt"
+    "$AGENT_VSCODE_DIR/tools/logs" 150 -q > "$TMP_LOGS"
+    if [[ -x "$AGENT_VSCODE_DIR/tools/update" ]]; then "$AGENT_VSCODE_DIR/tools/update" -q; fi
 
-    TOK_CTX=$(($(wc -m < "$SESSION_DIR/context.txt" 2>/dev/null || echo 0) / 3))
+    TOK_CTX=$(($(wc -m < "$AGENT_VSCODE_SESSION_DIR/context.txt" 2>/dev/null || echo 0) / 3))
     TOK_LOG=$(($(wc -m < "$TMP_LOGS" 2>/dev/null || echo 0) / 3))
     TOK_TOT=$((TOK_CTX + TOK_LOG))
 
@@ -33,12 +35,12 @@ while true; do
         echo "[Warning] Context exceeds 100k tokens."
     fi
 
-    echo "Thinking (Model: $AGENT_MODEL)..."
+    echo "Thinking (Model: $AGENT_VSCODE_MODEL)..."
     
     EXISTING_PLAN=""
-    if [[ -f "$SESSION_DIR/plan.md" ]]; then
+    if [[ -f "$AGENT_VSCODE_SESSION_DIR/plan.md" ]]; then
         EXISTING_PLAN="--- EXISTING MISSION PLAN ---
-$(cat "$SESSION_DIR/plan.md")
+$(cat "$AGENT_VSCODE_SESSION_DIR/plan.md")
 ---------------------------"
     fi
 
@@ -57,13 +59,17 @@ FORMAT REQUIREMENTS:
 3. '## Completion Criteria': Explicitly state how we know this goal is finished.
 Output ONLY the Markdown content."
 
-    PAYLOAD_FILE="$AGENT_DIR/payload.json"
+    PAYLOAD_FILE="$AGENT_VSCODE_DIR/payload.json"
     jq -n --arg pmt "$PROMPT" '{"contents":[{"parts":[{"text": $pmt}]}]}' > "$PAYLOAD_FILE"
     
-    if [[ -s "$SESSION_DIR/context.txt" ]]; then jq --rawfile raw "$SESSION_DIR/context.txt" '.contents[0].parts[0].text = "Project Context:\n" + $raw + "\n" + .contents[0].parts[0].text' "$PAYLOAD_FILE" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
-    if [[ -s "$TMP_LOGS" ]]; then jq --rawfile raw "$TMP_LOGS" '.contents[0].parts[0].text = "Terminal Logs:\n" + $raw + "\n" + .contents[0].parts[0].text' "$PAYLOAD_FILE" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
+    if [[ -s "$AGENT_VSCODE_SESSION_DIR/context.txt" ]]; then jq --rawfile raw "$AGENT_VSCODE_SESSION_DIR/context.txt" '.contents[0].parts[0].text = "Project Context:
+" + $raw + "
+" + .contents[0].parts[0].text' "$PAYLOAD_FILE" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
+    if [[ -s "$TMP_LOGS" ]]; then jq --rawfile raw "$TMP_LOGS" '.contents[0].parts[0].text = "Terminal Logs:
+" + $raw + "
+" + .contents[0].parts[0].text' "$PAYLOAD_FILE" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"; fi
     
-    RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/${AGENT_MODEL}:generateContent?key=$GEMINI_API_KEY" \
+    RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/${AGENT_VSCODE_MODEL}:generateContent?key=$GEMINI_API_KEY" \
       -H "Content-Type: application/json" -d @"$PAYLOAD_FILE")
     
     CURRENT_PROPOSAL=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty')
@@ -72,26 +78,31 @@ Output ONLY the Markdown content."
     
     if [[ -z "$CURRENT_PROPOSAL" ]]; then echo "[API Error] $(echo "$RESPONSE" | jq -r '.error.message // "Unknown error"')"; exit 1; fi
     
-    echo -e "\n==================== PROPOSED PLAN ====================\n"
+    echo -e "
+==================== PROPOSED PLAN ====================
+"
     echo "$CURRENT_PROPOSAL"
-    echo -e "\n======================================================="
+    echo -e "
+======================================================="
     
-    # Flush any stray keystrokes from the terminal buffer just in case
     while read -t 0; do read -r; done
     
     echo -ne "🚀 [Enter] to Accept | [Ctrl+C] to Cancel | [f] to refine/feedback: "
     read -e -r DECISION || exit 0
     
     if [[ -z "$DECISION" ]]; then
-        echo "$CURRENT_PROPOSAL" > "$SESSION_DIR/plan.md"
-        echo -e "\n[Success] Plan saved to plan.md!"
+        echo "$CURRENT_PROPOSAL" > "$AGENT_VSCODE_SESSION_DIR/plan.md"
+        echo -e "
+[Success] Plan saved to plan.md!"
         break
     elif [[ "$DECISION" == "f" || "$DECISION" == "F" ]]; then
-        echo -e "\n📝 Enter Feedback:"
+        echo -e "
+📝 Enter Feedback:"
         read -e -r first_line || exit 0
         FEEDBACK="$first_line"
         while read -t 1 -r extra_line; do
-            FEEDBACK+=$'\n'"$extra_line"
+            FEEDBACK+=$'
+'"$extra_line"
         done
     else
         FEEDBACK="$DECISION"
