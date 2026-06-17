@@ -26,14 +26,29 @@ if [[ -f "$STATE_FILE" ]] && command -v jq &>/dev/null; then
         F_CONTENT=$(jq -r '.lineContent' "$STATE_FILE")
         F_SEL=$(jq -r '.selectedText' "$STATE_FILE")
         
-        VSCODE_CONTEXT="VS CODE EDITOR STATE:
+        VSCODE_CONTEXT="==================================================
+CURRENT VS CODE ACTIVE EDITOR STATE (LIVE)
+==================================================
 - Active File: $F_PATH
 - Cursor Position: Line $F_LINE, Column $F_CHAR
-- Current Line Content: \"$F_CONTENT\""
+- Current Cursor Line Content: \"$F_CONTENT\""
+
         if [[ -n "$F_SEL" ]]; then
             VSCODE_CONTEXT="${VSCODE_CONTEXT}
 - Highlighted Selection: \"$F_SEL\""
         fi
+
+        if [[ -f "$F_PATH" ]]; then
+            F_FULL_CONTENT=$(cat "$F_PATH" 2>/dev/null)
+            VSCODE_CONTEXT="${VSCODE_CONTEXT}
+
+--- FULL FILE CONTENT ($F_PATH) ---
+$F_FULL_CONTENT
+--- END FULL FILE CONTENT ---"
+        fi
+        
+        VSCODE_CONTEXT="${VSCODE_CONTEXT}
+=================================================="
     fi
 fi
 
@@ -50,7 +65,9 @@ Rules:
    - Output EXACTLY: CHAT:<your concise explanation, response, or answer>
    - Example: CHAT:Yes, the agent is connected and working perfectly! Let me know if you need help with any commands.
 
-3. If the request is completely ambiguous or you cannot generate a response, output nothing."
+3. If the request is completely ambiguous or you cannot generate a response, output nothing.
+
+4. VS CODE EDITOR INTEGRATION: You are given full access to the live VS Code editor state, cursor position, selection, and full file contents (under CURRENT VS CODE ACTIVE EDITOR STATE). If the user asks if you can see the file, what is highlighted, where the cursor is, or queries file details, you MUST look at this context and answer accurately. Never claim you cannot see the file contents or position if they are provided."
 
 if [[ -z "$AGENT_VSCODE_SESSION_DIR" ]]; then
     SYS_PROMPT="${SYS_PROMPT}

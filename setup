@@ -65,7 +65,7 @@ if [[ "$TERM_PROGRAM" == "vscode" ]]; then
                 local first_word="${last_cmd%% *}"
                 local first_word_lower
                 first_word_lower=$(echo "$first_word" | tr '[:upper:]' '[:lower:]')
-                local suspect_words="what who where why how which is are can could should would do does did tell say ask show list please hello help"
+                local suspect_words="what who where why how which is are can could should would do does did tell say ask show list please hello help ok hey hi terminal explain debug find it's its there's theres can you could you should we do you did you check analyze test write edit run"
                 if [[ " $suspect_words " =~ " $first_word_lower " ]]; then
                     if [[ -z "$AGENT_VSCODE_SESSION_NAME" ]]; then
                         echo "ℹ️  Command failed but matched natural language pattern. Consulting general LLM..." >&2
@@ -103,7 +103,7 @@ $response
             first_word_lower=$(echo "$first_word" | tr '[:upper:]' '[:lower:]')
 
             local is_suspect=0
-            local suspect_words="what who where why how which is are can could should would do does did tell say ask show list please hello help"
+            local suspect_words="what who where why how which is are can could should would do does did tell say ask show list please hello help ok hey hi terminal explain debug find it's its there's theres can you could you should we do you did you check analyze test write edit run"
             if [[ " $suspect_words " =~ " $first_word_lower " ]]; then
                 local cmd_type
                 cmd_type=$(whence -w "$first_word" 2>/dev/null | awk '{print $2}')
