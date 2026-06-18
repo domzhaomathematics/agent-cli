@@ -80,8 +80,28 @@ if [[ -s "$AGENT_VSCODE_SESSION_DIR/context.txt" ]]; then
 " + .contents[0].parts[0].text' "$PAYLOAD_FILE" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"
 fi
 
+if [[ -s "$TMP_LOGS" ]]; then
+    jq --rawfile raw "$TMP_LOGS" '.contents[0].parts[0].text = "Terminal Logs:
+" + $raw + "
+" + .contents[0].parts[0].text' "$PAYLOAD_FILE" > "${PAYLOAD_FILE}.tmp" && mv "${PAYLOAD_FILE}.tmp" "$PAYLOAD_FILE"
+fi
+
 RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/${AGENT_VSCODE_MODEL}:generateContent?key=$GEMINI_API_KEY" \
     -H "Content-Type: application/json" -d @"$PAYLOAD_FILE")
+# =====================================================================
+# 🛠️ DEBUG SECTION (TEMPORARY - REMOVE LATER)
+# =====================================================================
+DEBUG_FILE="$AGENT_VSCODE_DIR/fill_debug.txt"
+{
+  echo "==================== PAYLOAD SENT TO GEMINI ===================="
+  cat "$PAYLOAD_FILE"
+  echo -e "
+
+==================== RESPONSE RECEIVED FROM GEMINI ===================="
+  echo "$RESPONSE"
+} > "$DEBUG_FILE"
+echo "⚠️  [DEBUG] Saved raw request and response to: $DEBUG_FILE"
+# =====================================================================
 
 
 rm -f "$PAYLOAD_FILE" "$TMP_LOGS"
