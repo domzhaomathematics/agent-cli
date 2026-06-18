@@ -83,16 +83,6 @@ fi
 RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/${AGENT_VSCODE_MODEL}:generateContent?key=$GEMINI_API_KEY" \
     -H "Content-Type: application/json" -d @"$PAYLOAD_FILE")
 
-# ==========================================
-# === START TEMPORARY DEBUGGING SECTION ===
-# ==========================================
-if [[ -f "$PAYLOAD_FILE" ]]; then
-    jq -r '.contents[0].parts[0].text' "$PAYLOAD_FILE" > "$AGENT_VSCODE_DIR/fill_debug_input.txt" 2>/dev/null
-fi
-echo "$RESPONSE" > "$AGENT_VSCODE_DIR/fill_debug_output.txt"
-# ==========================================
-# ===  END TEMPORARY DEBUGGING SECTION  ===
-# ==========================================
 
 rm -f "$PAYLOAD_FILE" "$TMP_LOGS"
 
