@@ -3,19 +3,15 @@ if [[ -z "$AGENT_VSCODE_SESSION_DIR" ]]; then echo "❌ Error: Session not activ
 OUT_FILE="$AGENT_VSCODE_SESSION_DIR/context.txt"
 if [[ ! -s "$OUT_FILE" ]]; then echo "Brain is empty."; exit 0; fi
 
-echo -e "
-📊 ANALYZING CONTEXT WEIGHT..."
+echo -e "\n📊 ANALYZING CONTEXT WEIGHT..."
 
+# LC_ALL=C is the secret for Mac compatibility and binary-robustness
 LC_ALL=C awk -v cwd="$(pwd)" '
 BEGIN {
     FS="|"; 
-    printf "
-📂 TOP-LEVEL FOLDERS (Aggregated)
-"
-    printf "%-12s %-8s %-s
-", "TOKENS", "FILES", "DIRECTORY"
-    printf "--------------------------------------------------------------------------------
-"
+    printf "\n📂 TOP-LEVEL FOLDERS (Aggregated)\n"
+    printf "%-12s %-8s %-s\n", "TOKENS", "FILES", "DIRECTORY"
+    printf "--------------------------------------------------------------------------------\n"
 }
 /---\[ FILE:/ {
     p = $1; sub(/---\[ FILE: /, "", p); sub(/ $/, "", p);
@@ -37,27 +33,18 @@ BEGIN {
 }
 END {
     for (d in dir_tokens) {
-        printf "%-12d %-8d %s
-", dir_tokens[d], dir_counts[d], d | "sort -rn | head -n 5"
+        printf "%-12d %-8d %s\n", dir_tokens[d], dir_counts[d], d | "sort -rn | head -n 5"
     }
     close("sort -rn | head -n 5")
 
-    printf "
-📄 HEAVIEST INDIVIDUAL FILES
-"
-    printf "%-12s %-8s %-s
-", "TOKENS", "MODE", "FILE PATH"
-    printf "--------------------------------------------------------------------------------
-"
+    printf "\n📄 HEAVIEST INDIVIDUAL FILES\n"
+    printf "%-12s %-8s %-s\n", "TOKENS", "MODE", "FILE PATH"
+    printf "--------------------------------------------------------------------------------\n"
     for (f in tokens) {
-        printf "%-12d %-8s %s
-", tokens[f], modes[f], f | "sort -rn | head -n 15"
+        printf "%-12d %-8s %s\n", tokens[f], modes[f], f | "sort -rn | head -n 15"
     }
     close("sort -rn | head -n 15")
 
-    printf "--------------------------------------------------------------------------------
-"
-    printf "TOTAL CONTEXT: ~%d tokens across %d files
-
-", total_t, total_f
+    printf "--------------------------------------------------------------------------------\n"
+    printf "TOTAL CONTEXT: ~%d tokens across %d files\n\n", total_t, total_f
 }' "$OUT_FILE"

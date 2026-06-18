@@ -25,7 +25,7 @@ INDICATORS=$(python3 -c '
 import sys, re
 with open(sys.argv[1], "r", encoding="utf-8") as f:
     for i, line in enumerate(f, 1):
-        m = re.match(r"^([ 	]*)(##\s*(.*))$", line)
+        m = re.match(r"^([      ]*)(##\s*(.*))$", line)
         if m:
             print(f"   - Line {i}: \"{m.group(2).strip()}\"")
 ' "$ACTIVE_FILE" 2>/dev/null)
@@ -83,6 +83,17 @@ fi
 RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/${AGENT_VSCODE_MODEL}:generateContent?key=$GEMINI_API_KEY" \
     -H "Content-Type: application/json" -d @"$PAYLOAD_FILE")
 
+# ==========================================
+# === START TEMPORARY DEBUGGING SECTION ===
+# ==========================================
+if [[ -f "$PAYLOAD_FILE" ]]; then
+    jq -r '.contents[0].parts[0].text' "$PAYLOAD_FILE" > "$AGENT_VSCODE_DIR/fill_debug_input.txt" 2>/dev/null
+fi
+echo "$RESPONSE" > "$AGENT_VSCODE_DIR/fill_debug_output.txt"
+# ==========================================
+# ===  END TEMPORARY DEBUGGING SECTION  ===
+# ==========================================
+
 rm -f "$PAYLOAD_FILE" "$TMP_LOGS"
 
 RESULT=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty')
@@ -130,7 +141,7 @@ clean_mappings = {k.strip(): v for k, v in mappings.items()}
 for line in lines:
     matched = False
     clean_line = line.rstrip(chr(10)).rstrip(chr(13))
-    match = re.match(r"^([ 	]*)(##\s*(.*))$", clean_line)
+    match = re.match(r"^([      ]*)(##\s*(.*))$", clean_line)
     if match:
         indent = match.group(1)
         indicator = match.group(2).strip()
