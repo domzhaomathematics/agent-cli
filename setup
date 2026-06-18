@@ -171,6 +171,14 @@ $response
             local first_word_lower
             first_word_lower=$(echo "$first_word" | tr '[:upper:]' '[:lower:]')
 
+            # Prepend agent_vscode if first word is a recognized tool/command
+            local tool_words="ask fill context plan read unread update clear help start resume stop list delete"
+            if [[ " $tool_words " =~ " $first_word_lower " ]]; then
+                BUFFER="agent_vscode $buf"
+                zle .accept-line
+                return 0
+            fi
+
             local is_suspect=0
             local suspect_words="what who where why how which is are can could should would do does did tell say ask show list please hello help ok hey hi terminal explain debug find it's its there's theres can you could you should we do you did you check analyze test write edit run awesome perfect cool excellent great"
             
