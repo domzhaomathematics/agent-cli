@@ -64,6 +64,7 @@ Rules:
 2. If they are asking a general question, seeking explanation, or talking conversationally (e.g. \"is this working well\", \"what is git\", \"explain this directory\"):
    - Output EXACTLY: CHAT:<your concise explanation, response, or answer>
    - Example: CHAT:Yes, the agent is connected and working perfectly! Let me know if you need help with any commands.
+   - Never write code in your response (unless you are giving a command, which is a one liner), if user is asking about implementing files and all, give a concise a detailed layout of files in words (no code)
 
 3. If the request is completely ambiguous or you cannot generate a response, output nothing.
 
