@@ -106,7 +106,7 @@ echo "⚠️  [DEBUG] Saved raw request and response to: $DEBUG_FILE"
 
 rm -f "$PAYLOAD_FILE" "$TMP_LOGS"
 
-RESULT=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty')
+RESULT=$(echo "$RESPONSE" | jq '.candidates[0].content.parts[0].text // empty')
 if [[ -z "$RESULT" ]]; then
     echo "❌ API Error: $(echo "$RESPONSE" | jq -r '.error.message // "Unknown error"')"
     exit 1
@@ -127,15 +127,28 @@ file_to_modify = sys.argv[2]
 
 try:
     with open(json_file, "r", encoding="utf-8") as f:
-        content = f.read().strip()
-        if content.startswith("```json"):
-            content = content[7:]
-        elif content.startswith("```"):
-            content = content[3:]
-        if content.endswith("```"):
-            content = content[:-3]
-        content = content.strip()
-        mappings = json.loads(content)
+        raw_content = f.read().strip()
+    
+    # Robustly decode the outer JSON string wrapper if present
+    if raw_content.startswith('"') and raw_content.endswith('"'):
+        try:
+            content = json.loads(raw_content)
+        except Exception:
+            content = raw_content
+    else:
+        content = raw_content
+        
+    content = content.strip()
+    if content.startswith("```json"):
+        content = content[7:]
+    elif content.startswith("```"):
+        content = content[3:]
+    if content.endswith("```"):
+        content = content[:-3]
+    content = content.strip()
+    
+    # strict=False allows literal raw newlines inside JSON string values
+    mappings = json.loads(content, strict=False)
 except Exception as e:
     print(f"❌ Failed to parse JSON response from LLM: {e}")
     sys.exit(1)
