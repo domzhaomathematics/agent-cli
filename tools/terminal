@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+trap '[[ -n "$TMP_LOGS" ]] && rm -f "$TMP_LOGS"; [[ -n "$PAYLOAD_FILE" ]] && rm -f "$PAYLOAD_FILE"; [[ -n "$TMP_JSON" ]] && rm -f "$TMP_JSON"; [[ -n "$TMP_SCRIPT" ]] && rm -f "$TMP_SCRIPT";' EXIT INT TERM
 
 PROMPT="$*"
 if [[ -z "$PROMPT" ]]; then
@@ -76,7 +77,7 @@ if [[ -z "$AGENT_VSCODE_SESSION_DIR" ]]; then
 ⚠️ NOTE: Currently, there is NO active workspace session context. Suggest a general command based solely on standard shell tools and the active editor file."
 fi
 
-PAYLOAD_FILE="$AGENT_VSCODE_DIR/payload_terminal.json"
+PAYLOAD_FILE="$AGENT_VSCODE_DIR/payload_terminal_$$.json"
 jq -n --arg pmt "$PROMPT" --arg sys "$SYS_PROMPT" '{"contents":[{"parts":[{"text": ($sys + "
 
 User Question:

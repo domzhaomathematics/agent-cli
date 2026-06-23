@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+trap '[[ -n "$TMP_LOGS" ]] && rm -f "$TMP_LOGS"; [[ -n "$PAYLOAD_FILE" ]] && rm -f "$PAYLOAD_FILE"; [[ -n "$TMP_JSON" ]] && rm -f "$TMP_JSON"; [[ -n "$TMP_SCRIPT" ]] && rm -f "$TMP_SCRIPT";' EXIT INT TERM
 if [[ -z "$AGENT_VSCODE_SESSION_DIR" ]]; then echo "[Error] Session not active."; exit 1; fi
 
 STATE_FILE="$HOME/.agentvscode/active_editor.json"
