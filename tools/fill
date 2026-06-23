@@ -25,7 +25,7 @@ INDICATORS=$(python3 -c '
 import sys, re
 with open(sys.argv[1], "r", encoding="utf-8") as f:
     for i, line in enumerate(f, 1):
-        m = re.match(r"^([      ]*)(##\s*(.*))$", line)
+        m = re.match(r"^([ 	]*)(##\s*(.*))$", line)
         if m:
             print(f"   - Line {i}: \"{m.group(2).strip()}\"")
 ' "$ACTIVE_FILE" 2>/dev/null)
@@ -49,17 +49,17 @@ fi
 
 echo "🧠 Consulting Gemini (Model: $AGENT_VSCODE_MODEL)... [Thinking...]"
 
-SYS_PROMPT="You are a precise coding assistant focused on interpolating/filling missing code blocks marked by comments starting with '\''##'\''.
-Your task is to analyze the entire file provided and find all comment lines starting with optional whitespace followed by '\''##'\'' and some instructions (the indicators).
+SYS_PROMPT="You are a precise coding assistant focused on interpolating/filling missing code blocks marked by comments starting with '##'.
+Your task is to analyze the entire file provided and find all comment lines starting with optional whitespace followed by '##' and some instructions (the indicators).
 
 For each indicator, generate the appropriate code implementation.
 You must return a JSON object where:
-- Key: The exact literal indicator line starting from '\''##'\'' to the end of the line (excluding any leading spaces/tabs).
+- Key: The exact literal indicator line starting from '##' to the end of the line (excluding any leading spaces/tabs).
 - Value: The raw, unindented code block that should replace that indicator line.
 
 Strict Rules:
 1. Output ONLY a valid JSON object. Do not include markdown code block formatting (like \`\`\`json). Just start with { and end with }.
-2. Do not indent the code inside the JSON value; the runner script will automatically detect the comment'\''s indentation and apply it to every line of your generated code.
+2. Do not indent the code inside the JSON value; the runner script will automatically detect the comment's indentation and apply it to every line of your generated code.
 3. Ensure your generated code is correct and complete for each placeholder."
 
 PROMPT="Target File Path: $ACTIVE_FILE
@@ -106,14 +106,15 @@ echo "⚠️  [DEBUG] Saved raw request and response to: $DEBUG_FILE"
 
 rm -f "$PAYLOAD_FILE" "$TMP_LOGS"
 
-RESULT=$(echo "$RESPONSE" | jq '.candidates[0].content.parts[0].text // empty')
+RESULT=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty')
 if [[ -z "$RESULT" ]]; then
     echo "❌ API Error: $(echo "$RESPONSE" | jq -r '.error.message // "Unknown error"')"
     exit 1
 fi
 
 TMP_JSON="$AGENT_VSCODE_DIR/tmp_fill_$$.json"
-echo "$RESULT" > "$TMP_JSON"
+printf "%s
+" "$RESULT" > "$TMP_JSON"
 
 echo "⚡ Interpolating changes with python3..."
 
@@ -127,18 +128,8 @@ file_to_modify = sys.argv[2]
 
 try:
     with open(json_file, "r", encoding="utf-8") as f:
-        raw_content = f.read().strip()
-    
-    # Robustly decode the outer JSON string wrapper if present
-    if raw_content.startswith('"') and raw_content.endswith('"'):
-        try:
-            content = json.loads(raw_content)
-        except Exception:
-            content = raw_content
-    else:
-        content = raw_content
+        content = f.read().strip()
         
-    content = content.strip()
     if content.startswith("```json"):
         content = content[7:]
     elif content.startswith("```"):
@@ -153,18 +144,22 @@ except Exception as e:
     print(f"❌ Failed to parse JSON response from LLM: {e}")
     sys.exit(1)
 
+if not isinstance(mappings, dict):
+    print("❌ Failed to parse JSON response from LLM: Expected a JSON object.")
+    sys.exit(1)
+
 with open(file_to_modify, "r", encoding="utf-8") as f:
     lines = f.readlines()
 
 output_lines = []
 interpolations = 0
 
-clean_mappings = {k.strip(): v for k, v in mappings.items()}
+clean_mappings = {k.strip(): str(v) for k, v in mappings.items()}
 
 for line in lines:
     matched = False
     clean_line = line.rstrip(chr(10)).rstrip(chr(13))
-    match = re.match(r"^([      ]*)(##\s*(.*))$", clean_line)
+    match = re.match(r"^([ 	]*)(##\s*(.*))$", clean_line)
     if match:
         indent = match.group(1)
         indicator = match.group(2).strip()

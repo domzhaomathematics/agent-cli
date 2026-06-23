@@ -27,12 +27,12 @@ if [[ -n "$AGENT_VSCODE_SESSION_DIR" && -f "$AGENT_VSCODE_SESSION_DIR/api.env" ]
     source "$AGENT_VSCODE_SESSION_DIR/api.env"
 fi
 
-# Handle Model Tiers (Defaults to gemini-3.5-flash)
-export AGENT_VSCODE_MODEL="gemini-3.5-flash"
+# Handle Model Tiers (Defaults to gemini-3.1-pro-preview)
+export AGENT_VSCODE_MODEL="gemini-3.1-pro-preview"
 NEW_ARGS=()
 for arg in "$@"; do
     if [[ "$arg" == "-s" || "$arg" == "-smartest" ]]; then
-        export AGENT_VSCODE_MODEL="gemini-3.1-pro-preview"
+        export AGENT_VSCODE_MODEL="gemini-3.5-flash"
     else
         NEW_ARGS+=("$arg")
     fi
