@@ -12,7 +12,7 @@ fi
 
 TMP_LOGS="$AGENT_VSCODE_DIR/tmp_logs_terminal_$$.txt"
 if [[ -n "$AGENT_VSCODE_SESSION_DIR" ]]; then
-    "$AGENT_VSCODE_DIR/tools/logs" 100 -q > "$TMP_LOGS" 2>/dev/null
+    "$AGENT_VSCODE_DIR/tools/logs" 1500 -q > "$TMP_LOGS" 2>/dev/null
 else
     > "$TMP_LOGS"
 fi

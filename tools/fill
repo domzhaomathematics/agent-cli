@@ -43,7 +43,7 @@ if [[ -x "$AGENT_VSCODE_DIR/tools/update" ]]; then "$AGENT_VSCODE_DIR/tools/upda
 
 TMP_LOGS="$AGENT_VSCODE_DIR/tmp_logs_terminal_$$.txt"
 if [[ -x "$AGENT_VSCODE_DIR/tools/logs" ]]; then
-    "$AGENT_VSCODE_DIR/tools/logs" 100 -q > "$TMP_LOGS" 2>/dev/null
+    "$AGENT_VSCODE_DIR/tools/logs" 1500 -q > "$TMP_LOGS" 2>/dev/null
 else
     > "$TMP_LOGS"
 fi
