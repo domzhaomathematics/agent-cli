@@ -4,9 +4,7 @@ BIN_DIR="$HOME/.local/bin"
 RC_FILE="$HOME/.bashrc"
 if [[ "$(basename "$SHELL")" == "zsh" ]]; then RC_FILE="$HOME/.zshrc"; fi
 
-echo -e "
-⚙️  Setting up agent_vscode in-place at $SRC_DIR...
-"
+echo -e "\n⚙️  Setting up agent_vscode in-place at $SRC_DIR...\n"
 
 mkdir -p "$SRC_DIR/tools" "$SRC_DIR/manage" "$SRC_DIR/sessions/.bindings"
 
@@ -19,8 +17,7 @@ ln -sf "$SRC_DIR/agent_vscode" "$BIN_DIR/agent_vscode"
 echo "   ✔ Global symlink established ($BIN_DIR/agent_vscode -> $SRC_DIR/agent_vscode)"
 
 if ! grep -q "$BIN_DIR" "$RC_FILE" 2>/dev/null; then
-    echo -e "
-export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$RC_FILE"
+    echo -e "\nexport PATH=\"$HOME/.local/bin:\$PATH\"" >> "$RC_FILE"
     echo "   ✔ PATH updated in $(basename "$RC_FILE")"
 fi
 
@@ -69,8 +66,7 @@ for kb_path in "${KB_PATHS[@]}"; do
             };
             if ($@) {
                 # If existing is completely corrupted, fall back safely to empty array
-                warn "      ⚠️  existing keybindings.json malformed ($@). Initializing safely.
-";
+                warn "      ⚠️  existing keybindings.json malformed ($@). Initializing safely.\n";
                 $data = [];
             }
             
@@ -89,15 +85,12 @@ for kb_path in "${KB_PATHS[@]}"; do
                     open my $fh, ">", $path or die "Could not write to $path: $!";
                     print $fh $coder->encode($data);
                     close $fh;
-                    print "      ✔ Keybinding successfully added to $path!
-";
+                    print "      ✔ Keybinding successfully added to $path!\n";
                 } else {
-                    print "      ✔ Hotkey '\''cmd+shift+enter'\'' already configured in $path.
-";
+                    print "      ✔ Hotkey '\''cmd+shift+enter'\'' already configured in $path.\n";
                 }
             } else {
-                warn "      ⚠️  keybindings.json root is not a JSON array. Skipping.
-";
+                warn "      ⚠️  keybindings.json root is not a JSON array. Skipping.\n";
             }
         ' "$kb_path" "$NEW_BINDING_JSON"
     fi
@@ -136,7 +129,7 @@ if [[ "$TERM_PROGRAM" == "vscode" ]]; then
                 local first_word="${last_cmd%% *}"
                 local first_word_lower
                 first_word_lower=$(echo "$first_word" | tr '[:upper:]' '[:lower:]')
-                local suspect_words="what who where why how which is are can could should would do does did tell say ask show list please hello help ok hey hi terminal explain debug find it's its there's theres can you could you should we do you did you check analyze test write edit run awesome perfect cool excellent great"
+                local suspect_words="what who where why how which is are can could should would do does did tell say ask show list please hello help ok hey hi terminal explain debug find it's its there's theres can you could you should we do you did you check analyze test write edit run awesome perfect cool excellent great wait yes no but look for okay"
                 if [[ " $suspect_words " =~ " $first_word_lower " ]]; then
                     if [[ -z "$AGENT_VSCODE_SESSION_NAME" ]]; then
                         echo "ℹ️  Command failed but matched natural language pattern. Consulting general LLM..." >&2
@@ -150,9 +143,7 @@ if [[ "$TERM_PROGRAM" == "vscode" ]]; then
                         fi
                     elif [[ "$suggestion" =~ ^CHAT: ]]; then
                         local response="${suggestion#CHAT:}"
-                        echo -e "
-$response
-" >&2
+                        echo -e "\n$response\n" >&2
                     fi
                 fi
             fi
@@ -180,23 +171,26 @@ $response
             fi
 
             local is_suspect=0
-            local suspect_words="what who where why how which is are can could should would do does did tell say ask show list please hello help ok hey hi terminal explain debug find it's its there's theres can you could you should we do you did you check analyze test write edit run awesome perfect cool excellent great"
+            local suspect_words="what who where why how which is are can could should would do does did tell say ask show list please hello help ok hey hi terminal explain debug find it's its there's theres can you could you should we do you did you check analyze test write edit run awesome perfect cool excellent great wait yes no but look for okay"
             
             local cmd_type=""
             if [[ -n "$first_word" ]]; then
                 cmd_type=$(whence -w "$first_word" 2>/dev/null | awk '{print $2}')
             fi
 
+            # 1. Force intercept if it starts with a known natural language word
             if [[ " $suspect_words " =~ " $first_word_lower " ]]; then
-                if [[ "$first_word_lower" == "do" || -z "$cmd_type" || "$cmd_type" == "none" ]]; then
-                    is_suspect=1
-                fi
+                is_suspect=1
             fi
 
-            if [[ "$is_suspect" -eq 0 && ("$cmd_type" == "none" || -z "$cmd_type") ]]; then
-                if [[ ! "$first_word" =~ ^[\./~] && ! "$first_word" == *=* ]]; then
-                    if [[ "$buf" == *[\?\'\"]* ]]; then
-                        is_suspect=1
+            # 2. Intercept if the prompt contains a question mark or quotes, 
+            # ONLY IF the first word is not a valid system command.
+            if [[ "$is_suspect" -eq 0 ]]; then
+                if [[ "$cmd_type" == "none" || -z "$cmd_type" ]]; then
+                    if [[ ! "$first_word" =~ ^[\./~] && ! "$first_word" == *=* ]]; then
+                        if [[ "$buf" == *[\?]* ]] || [[ "$buf" == *[\'\"]* ]]; then
+                            is_suspect=1
+                        fi
                     fi
                 fi
             fi
@@ -204,8 +198,7 @@ $response
             if [[ "$is_suspect" -eq 1 ]]; then
                 print -s "$buf"
                 BUFFER=""
-                echo -ne "
-"
+                echo -ne "\n"
                 if [[ -z "$AGENT_VSCODE_SESSION_NAME" ]]; then
                     echo "ℹ️  Consulting general LLM..." >&2
                 fi
@@ -218,9 +211,7 @@ $response
                     fi
                 elif [[ "$suggestion" =~ ^CHAT: ]]; then
                     local response="${suggestion#CHAT:}"
-                    echo -e "
-$response
-" >&2
+                    echo -e "\n$response\n" >&2
                 fi
                 zle reset-prompt
                 return 0
@@ -251,9 +242,7 @@ $response
                 fi
             elif [[ "$suggestion" =~ ^CHAT: ]]; then
                 local response="${suggestion#CHAT:}"
-                echo -e "
-$response
-" >&2
+                echo -e "\n$response\n" >&2
                 return 0
             fi
 
@@ -270,5 +259,4 @@ OUT_EOF
     echo "   ✔ Command Router integration updated inside $RC_FILE."
 fi
 
-echo -e "
-✅ agent_vscode deployment complete!"
+echo -e "\n✅ agent_vscode deployment complete!"
