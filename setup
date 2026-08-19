@@ -163,7 +163,7 @@ if [[ "$TERM_PROGRAM" == "vscode" ]]; then
             first_word_lower=$(echo "$first_word" | tr '[:upper:]' '[:lower:]')
 
             # Prepend agent_vscode if first word is a recognized tool/command
-            local tool_words="ask fill context plan read unread update clear help start resume stop list delete"
+            local tool_words="fill context read unread update clear help start resume stop list delete"
             if [[ " $tool_words " =~ " $first_word_lower " ]]; then
                 BUFFER="agent_vscode $buf"
                 zle .accept-line

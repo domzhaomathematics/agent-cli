@@ -16,8 +16,6 @@ echo "  context               : Dashboard showing loaded files/tokens"
 
 echo -e "
 --- 💬 Interaction ---"
-echo "  plan <goal>           : Build a mission plan (plan.md)"
-echo "  ask                   : Ask Gemini using loaded context"
 echo "  terminal <prompt>     : Suggest single-line terminal commands"
 
 echo -e "
